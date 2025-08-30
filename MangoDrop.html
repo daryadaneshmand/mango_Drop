@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sahra's Mango Quest</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a2e;
+            overflow: hidden; /* Hide scrollbars */
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameContainer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        canvas {
+            border: none; /* Remove border for fullscreen */
+            background: #0f0f23;
+            image-rendering: pixelated;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        h1 {
+            position: absolute;
+            top: 20px;
+            color: #3b56a7;
+            font-family: 'Outfit';
+            font-size: 40px;
+            z-index: 10;
+        }
+        
+        p {
+            position: absolute;
+            bottom: 20px;
+            color: #cccccc;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <h1>🥭 Sahra's Mango Quest 🦇</h1>
+        <canvas id="gameCanvas"></canvas>
+        <p>Use arrow keys to move the bat • Catch the sacred mangoes!</p>
+    </div>
+
+    <script>
+        // Tsoding-style approach: Direct pixel buffer manipulation!
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Get actual screen size for fullscreen
+        const DISPLAY_WIDTH = window.innerWidth;
+        const DISPLAY_HEIGHT = window.innerHeight;
+        
+        // Set canvas to screen size
+        canvas.width = DISPLAY_WIDTH;
+        canvas.height = DISPLAY_HEIGHT;
+        
+        // Our holy pixel buffer - same philosophy as Tsoding's static array
+        let display = new Uint32Array(DISPLAY_WIDTH * DISPLAY_HEIGHT);
+        
+        // Game state
+        let batX = DISPLAY_WIDTH / 2;
+        let batY = DISPLAY_HEIGHT - 350; // Adjusted for larger bat
+        let batSpeed = 12; // Increased speed for fullscreen
+        let batImage = null;
+        
+        // Three mango types
+        const MANGO_TYPES = [
+            { name: 'Honey', points: 10, rarity: 0.7, image: null, fallbackColor: 0xFFD700 },
+            { name: 'Moldy', points: -30, rarity: 0.2, image: null, fallbackColor: 0x654321 },
+            { name: 'Miyazaki', points: 100, rarity: 0.1, image: null, fallbackColor: 0xFF1493 }
+        ];
+        
+        function loadMangoImages() {
+            const imageFiles = ['honey.png', 'moldy.png', 'miyazaki.png'];
+            
+            MANGO_TYPES.forEach((mango, index) => {
+                const img = new Image();
+                
+                img.onload = () => {
+                    mango.image = img;
+                    console.log(`✅ Loaded ${mango.name} mango sprite!`);
+                };
+                
+                img.onerror = () => {
+                    console.log(`⚠️ Could not load ${imageFiles[index]}, using fallback color`);
+                };
+                
+                img.src = imageFiles[index];
+            });
+
+            const batImg = new Image();
+            batImg.onload = () => {
+                batImage = batImg;
+                console.log('✅ Loaded bat sprite!');
+            };
+            batImg.onerror = () => console.log('⚠️ Could not load bat.png, using fallback');
+            batImg.src = 'bat.png';
+        }
+        
+        let mangoes = [];
+        let score = 0;
+        let health = 100;
+        let maxHealth = 100;
+        let gameOver = false;
+
+        // Celebration effects - FIXED Spring class with velocity property
+        class Spring {
+            constructor(target, stiffness = 0.3, damping = 0.8) {
+                this.value = target;
+                this.target = target;
+                this.velocity = 0; // FIXED: This was missing!
+                this.stiffness = stiffness;
+                this.damping = damping;
+            }
+
+            update() {
+                const force = (this.target - this.value) * this.stiffness;
+                this.velocity += force;
+                this.velocity *= this.damping;
+                this.value += this.velocity;
+            }
+        }
+
+        let particles = [];
+        let scorePopups = [];
+        
+        // Input handling
+        const keys = {};
+        window.addEventListener('keydown', (e) => keys[e.code] = true);
+        window.addEventListener('keyup', (e) => keys[e.code] = false);
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            location.reload(); // Reload game when window is resized
+        });
+        
+        // Clear the entire display buffer
+        function clearScreen() {
+            // Soft gradient from pale yellow at top to muted royal blue at bottom
+            for (let y = 0; y < DISPLAY_HEIGHT; y++) {
+                const ratio = y / DISPLAY_HEIGHT;
+                // Interpolate: pale yellow (255,255,200) -> muted royal blue (70,100,150)
+                const r = Math.floor(255 * (1 - ratio) + 70 * ratio);
+                const g = Math.floor(255 * (1 - ratio) + 100 * ratio);
+                const b = Math.floor(200 * (1 - ratio) + 150 * ratio);
+                const color = (r << 16) | (g << 8) | b;
+                
+                // Fill entire row with this color
+                for (let x = 0; x < DISPLAY_WIDTH; x++) {
+                    display[y * DISPLAY_WIDTH + x] = color;
+                }
+            }
+        }
+        
+        // Draw a rectangle directly to pixel buffer
+        function drawRect(x, y, width, height, color) {
+            for (let dy = 0; dy < height; dy++) {
+                for (let dx = 0; dx < width; dx++) {
+                    const pixelX = Math.floor(x + dx);
+                    const pixelY = Math.floor(y + dy);
+                    
+                    if (pixelX >= 0 && pixelX < DISPLAY_WIDTH && 
+                        pixelY >= 0 && pixelY < DISPLAY_HEIGHT) {
+                        display[pixelY * DISPLAY_WIDTH + pixelX] = color;
+                    }
+                }
+            }
+        }
+
+        // Draw an image to pixel buffer (for your beautiful mangoes!)
+        function drawImage(img, x, y, width, height) {
+            // Create temporary canvas to get image pixel data
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            
+            // Draw scaled image to temp canvas
+            tempCtx.drawImage(img, 0, 0, width, height);
+            
+            // Get pixel data
+            const imageData = tempCtx.getImageData(0, 0, width, height);
+            
+            // Copy to our pixel buffer
+            for (let dy = 0; dy < height; dy++) {
+                for (let dx = 0; dx < width; dx++) {
+                    const pixelX = Math.floor(x + dx);
+                    const pixelY = Math.floor(y + dy);
+                    
+                    if (pixelX >= 0 && pixelX < DISPLAY_WIDTH && 
+                        pixelY >= 0 && pixelY < DISPLAY_HEIGHT) {
+                        
+                        const srcIndex = (dy * width + dx) * 4;
+                        const alpha = imageData.data[srcIndex + 3];
+                        
+                        // Only draw non-transparent pixels
+                        if (alpha > 128) {
+                            const r = imageData.data[srcIndex];
+                            const g = imageData.data[srcIndex + 1];
+                            const b = imageData.data[srcIndex + 2];
+                            const color = (r << 16) | (g << 8) | b;
+                            
+                            display[pixelY * DISPLAY_WIDTH + pixelX] = color;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Choose random mango type based on rarity
+        function getRandomMangoType() {
+            const rand = Math.random();
+            let cumulative = 0;
+            
+            for (const mango of MANGO_TYPES) {
+                cumulative += mango.rarity;
+                if (rand < cumulative) {
+                    return mango;
+                }
+            }
+            return MANGO_TYPES[0]; // Fallback to honey
+        }
+
+        // Effect functions
+        function createMiyazakiExplosion(centerX, centerY) {
+            for (let i = 0; i < 15; i++) {
+                const angle = (i / 15) * Math.PI * 2;
+                const speed = 8 + Math.random() * 4;
+                
+                particles.push({
+                    x: centerX, y: centerY,
+                    springX: new Spring(centerX),
+                    springY: new Spring(centerY),
+                    scale: new Spring(1.5, 0.2, 0.7),
+                    life: 60,
+                    color: 0xFFD700
+                });
+                
+                const p = particles[particles.length-1];
+                p.springX.velocity = Math.cos(angle) * speed;
+                p.springY.velocity = Math.sin(angle) * speed;
+            }
+        }
+
+        function createScorePopup(x, y, points) {
+            scorePopups.push({
+                x: x, y: y, points: points,
+                scale: new Spring(2.0, 0.15, 0.6),
+                alpha: new Spring(1.0, 0.3, 0.9),
+                yOffset: new Spring(-30, 0.2, 0.8),
+                life: 60 // Increased from 120 to make it more visible
+            });
+        }
+
+        // Convert our pixel buffer to canvas ImageData
+        function renderToCanvas() {
+            const imageData = ctx.createImageData(DISPLAY_WIDTH, DISPLAY_HEIGHT);
+            
+            for (let i = 0; i < display.length; i++) {
+                const color = display[i];
+                const pixelIndex = i * 4;
+                
+                // Extract RGB from our uint32 color
+                imageData.data[pixelIndex] = (color >> 16) & 0xFF;     // R
+                imageData.data[pixelIndex + 1] = (color >> 8) & 0xFF;  // G
+                imageData.data[pixelIndex + 2] = color & 0xFF;         // B
+                imageData.data[pixelIndex + 3] = 255;                  // A
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+        
+        // Update game state
+        function update() {
+            if (gameOver) {
+                // Restart on any key press
+                if (Object.values(keys).some(key => key)) {
+                    health = maxHealth;
+                    score = 0;
+                    mangoes = [];
+                    gameOver = false;
+                    particles = [];
+                    scorePopups = [];
+                }
+                return;
+            }
+
+            // Bat movement with arrow keys - FIXED boundaries for larger bat
+            if (keys['ArrowLeft'] && batX > 0) {
+                batX -= batSpeed;
+            }
+            if (keys['ArrowRight'] && batX < DISPLAY_WIDTH - 480) {
+                batX += batSpeed;
+            }
+            if (keys['ArrowUp'] && batY > 0) {
+                batY -= batSpeed;
+            }
+            if (keys['ArrowDown'] && batY < DISPLAY_HEIGHT - 320) {
+                batY += batSpeed;
+            }
+
+            // Update celebration effects
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.springX.update();
+                p.springY.update();
+                p.scale.update();
+                p.x = p.springX.value;
+                p.y = p.springY.value;
+                p.life--;
+                
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+            
+            for (let i = scorePopups.length - 1; i >= 0; i--) {
+                const popup = scorePopups[i];
+                popup.scale.update();
+                popup.alpha.update();
+                popup.yOffset.update();
+                popup.life--;
+                
+                if (popup.life < 60) popup.alpha.target = 0; // Start fading earlier
+                if (popup.life <= 0) scorePopups.splice(i, 1);
+            }
+
+            // Spawn mangoes occasionally with rarity system
+            if (Math.random() < 0.02) {
+                const mangoType = getRandomMangoType();
+                mangoes.push({
+                    x: Math.random() * (DISPLAY_WIDTH - 96),
+                    y: -96,
+                    type: mangoType,
+                    width: 96,
+                    height: 96,
+                    speed: 6 + Math.random() * 8 // Increased speed for fullscreen
+                });
+            }
+            
+            // Move mangoes down
+            for (let i = mangoes.length - 1; i >= 0; i--) {
+                const mango = mangoes[i];
+                mango.y += mango.speed;
+                
+                // Remove if off screen
+                if (mango.y > DISPLAY_HEIGHT) {
+                    mangoes.splice(i, 1);
+                    continue;
+                }
+                
+                // FIXED collision detection for larger bat (480x320)
+                if (batX < mango.x + mango.width &&
+                    batX + 480 > mango.x &&
+                    batY < mango.y + mango.height &&
+                    batY + 320 > mango.y) {
+                    
+                    score += mango.type.points;
+                    
+                    // Health effects
+                    if (mango.type.name === 'Moldy') {
+                        health -= 25;
+                        console.log('💀 Oh no! Moldy mango! 💀');
+                        if (health <= 0) gameOver = true;
+                    } else if (mango.type.name === 'Miyazaki') {
+                        health = Math.min(maxHealth, health + 15);
+                        console.log('🎉✨ HOLY MIYAZAKI MANGO ACQUIRED! ✨🎉');
+
+                        createMiyazakiExplosion(mango.x + 24, mango.y + 24);
+                        createScorePopup(mango.x + 24, mango.y, 100);
+                    } else {
+                        health = Math.min(maxHealth, health + 5);
+                    }
+                    
+                    mangoes.splice(i, 1);
+                }
+            }
+        }
+        
+        // Render everything
+        function render() {
+            clearScreen();
+
+            if (gameOver) {
+                // Game over screen
+                drawRect(DISPLAY_WIDTH/2 - 200, DISPLAY_HEIGHT/2 - 50, 400, 100, 0x000000);
+                
+                renderToCanvas();
+                ctx.fillStyle = '#FF0000';
+                ctx.font = '40px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', DISPLAY_WIDTH/2, DISPLAY_HEIGHT/2 - 10);
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '20px Arial';
+                ctx.fillText(`Final Score: ${score}`, DISPLAY_WIDTH/2, DISPLAY_HEIGHT/2 + 20);
+                ctx.fillText('Press any key to restart', DISPLAY_WIDTH/2, DISPLAY_HEIGHT/2 + 50);
+                ctx.textAlign = 'left';
+                return;
+            }
+            
+            // Draw bat with correct size (480x320) - 4x larger
+            if (batImage && batImage.complete) {
+                drawImage(batImage, batX, batY, 480, 320);
+            } else {
+                drawRect(batX, batY, 480, 320, 0x8A2BE2);
+            }   
+            
+            // Draw mangoes (your beautiful sprites or fallback rectangles)
+            mangoes.forEach(mango => {
+                if (mango.type.image && mango.type.image.complete) {
+                    drawImage(mango.type.image, mango.x, mango.y, mango.width, mango.height);
+                } else {
+                    drawRect(mango.x, mango.y, mango.width, mango.height, mango.type.fallbackColor);
+                }
+            });
+
+            // Draw particles
+            particles.forEach(p => {
+                const size = Math.max(1, p.scale.value * 3);
+                drawRect(p.x - size/2, p.y - size/2, size, size, p.color);
+            });
+            
+            // Render pixel buffer to canvas
+            renderToCanvas();
+            
+            // Score display
+            ctx.fillStyle = 'darkblue';
+            ctx.font = '30px Outfit';
+            ctx.fillText(`Holy Mangoes: ${score}`, 10, 35);
+
+            // Health bar
+            ctx.fillStyle = 'red';
+            ctx.fillRect(DISPLAY_WIDTH - 220, 20, 200, 20);
+            ctx.fillStyle = 'green';
+            ctx.fillRect(DISPLAY_WIDTH - 220, 20, (health / maxHealth) * 200, 20);
+            ctx.fillStyle = 'darkblue';
+            ctx.font = '16px Outfit';
+            ctx.fillText(`Health: ${Math.floor(health)}`, DISPLAY_WIDTH - 220, 55); 
+
+            // Score popups
+            scorePopups.forEach(popup => {
+                ctx.save();
+                ctx.globalAlpha = popup.alpha.value;
+                ctx.font = `${popup.scale.value * 20}px Arial`;
+                ctx.fillStyle = '#FFD700';
+                ctx.textAlign = 'center';
+                ctx.fillText(`+${popup.points}`, popup.x, popup.y + popup.yOffset.value);
+                ctx.restore();
+            });
+            ctx.textAlign = 'left';
+        }
+        
+        // Game loop
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Initialize the game
+        loadMangoImages();
+        
+        // Start the game!
+        gameLoop();
+    </script>
+</body>
+</html>
