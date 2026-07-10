@@ -145,7 +145,7 @@ function resetRun() {
 // ---------------------------------------------------------------- audio
 const music = {
   ctx:null, master:null, sfx:null, musicGain:null, bedBus:null,
-  tracks:{}, mode:'auto', hidden:false, actNow:1, loaded:false,
+  tracks:{}, mode:'auto', hidden:false, actNow:1, loaded:false, poufPos:null, poufUntil:0,
   unlock() {
     if (this.ctx) { this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -223,12 +223,18 @@ const music = {
     const t = this.tracks.pouf;
     if (!this.ctx || !t || !t.buf || this.mode === 'off' || this.mode === 'pouf') return;
     const now = this.ctx.currentTime;
-    const start = POUF_STING_START !== null ? POUF_STING_START : t.buf.duration * 0.55;
+    if (now < this.poufUntil) return;         // one violinist on stage at a time
+    this.poufUntil = now + 9;
+    // playhead survives between stings — each moldy mango gets the next 9s of the cut
+    if (this.poufPos === null) this.poufPos = POUF_STING_START !== null ? POUF_STING_START : t.buf.duration * 0.55;
+    if (t.buf.duration - this.poufPos < 9.5) this.poufPos = 0;
+    const start = this.poufPos;
+    this.poufPos += 9;
     const g = this.ctx.createGain(); g.gain.value = 0; g.connect(this.musicGain);
     const src = this.ctx.createBufferSource(); src.buffer = t.buf; src.connect(g);
-    src.start(now, Math.min(start, Math.max(0, t.buf.duration - 10)));
-    g.gain.linearRampToValueAtTime(0.6, now + 0.25);
-    g.gain.setValueAtTime(0.6, now + 7.2);
+    src.start(now, start);
+    g.gain.linearRampToValueAtTime(0.45, now + 0.25);
+    g.gain.setValueAtTime(0.45, now + 7.2);
     g.gain.linearRampToValueAtTime(0, now + 8.8);
     src.stop(now + 9);
     this.bedBus.gain.cancelScheduledValues(now);
