@@ -861,10 +861,21 @@ function drawMessenger() {
   drawFirefly(x, y, glow, 4);
   if (!m.boomed && m.t > 0.6) {
     const line = m.line;
-    ctx.font = line.mumble ? 'italic 13.5px Georgia' : '17px Georgia';
-    const tw = ctx.measureText(line.t).width;
-    const bw = tw + 32, bh = line.mumble ? 30 : 36;
-    const bx = clamp(x - bw / 2, 8, W - bw - 8), by = y - 56;
+    ctx.font = line.mumble ? 'italic 15px Georgia' : 'italic 19px Georgia';
+    const maxW = Math.min(line.mumble ? 230 : 270, W - 60);
+    const words = line.t.split(' ');
+    const rows = [];
+    let cur = '';
+    for (const wd of words) {
+      const test = cur ? cur + ' ' + wd : wd;
+      if (ctx.measureText(test).width > maxW && cur) { rows.push(cur); cur = wd; }
+      else cur = test;
+    }
+    if (cur) rows.push(cur);
+    const lh = line.mumble ? 20 : 25;
+    const twMax = Math.max(...rows.map(r => ctx.measureText(r).width));
+    const bw = twMax + 34, bh = rows.length * lh + 16;
+    const bx = clamp(x - bw / 2, 8, W - bw - 8), by = y - 20 - bh;
     ctx.globalAlpha = line.mumble ? 0.9 : 0.97;
     ctx.fillStyle = PAL.paper;
     roundRect(bx, by, bw, bh, 13); ctx.fill();
@@ -872,7 +883,7 @@ function drawMessenger() {
     roundRect(bx, by, bw, bh, 13); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x - 5, by + bh); ctx.lineTo(x + 6, by + bh); ctx.lineTo(x + 1, by + bh + 7); ctx.fill();
     ctx.fillStyle = PAL.plum; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(line.t, bx + bw / 2, by + bh / 2 + 1);
+    rows.forEach((r, i) => ctx.fillText(r, bx + bw / 2, by + 10 + lh * i + lh / 2 - 1));
   }
   ctx.restore();
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
