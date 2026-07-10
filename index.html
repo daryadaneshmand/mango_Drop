@@ -99,6 +99,7 @@ function hexLerp(h1, h2, t) {
   return `rgb(${a.map((v,i)=>Math.round(lerp(v,b[i],t))).join(',')})`;
 }
 const easeOut = t => 1 - Math.pow(1 - t, 3);
+const HAS_KB = matchMedia('(hover: hover) and (pointer: fine)').matches;  // keycap cues only where keys exist
 
 // ---------------------------------------------------------------- assets
 const IMGS = {};
@@ -145,13 +146,13 @@ function resetRun() {
 // ---------------------------------------------------------------- audio
 const music = {
   ctx:null, master:null, sfx:null, musicGain:null, bedBus:null,
-  tracks:{}, mode:'auto', hidden:false, actNow:1, loaded:false, poufPos:null, poufUntil:0, samples:{},
+  tracks:{}, mode:'auto', hidden:false, actNow:1, loaded:false, poufPos:null, poufUntil:0, samples:{}, muted:false,
   unlock() {
     if (this.ctx) { this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
-    this.master = this.ctx.createGain(); this.master.gain.value = 0.9;
+    this.master = this.ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.9;
     this.master.connect(this.ctx.destination);
     this.sfx = this.ctx.createGain(); this.sfx.gain.value = 0.8; this.sfx.connect(this.master);
     this.musicGain = this.ctx.createGain(); this.musicGain.gain.value = 1; this.musicGain.connect(this.master);
@@ -262,6 +263,16 @@ const music = {
     this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
     this.apply();
     toast('music: ' + labels[this.mode]);
+  },
+  setMuted(m) {                               // hard mute, everything — the m key
+    this.muted = m;
+    if (this.ctx) {
+      const now = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setValueAtTime(this.master.gain.value, now);
+      this.master.gain.linearRampToValueAtTime(m ? 0 : 0.9, now + 0.15);
+    }
+    toast(m ? 'muted (m)' : 'sound on (m)');
   },
   sting() {                                   // Pouf interrupts the cozy
     const t = this.tracks.pouf;
@@ -970,7 +981,14 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(30,26,42,0.45)';
   ctx.beginPath(); ctx.arc(bx, by, 17, 0, 6.29); ctx.fill();
   ctx.fillStyle = PAL.paper; ctx.font = '16px Georgia'; ctx.textAlign = 'center';
-  ctx.fillText(music.mode === 'off' ? '♪̸' : '♪', bx, by + 6);
+  ctx.fillText((music.muted || music.mode === 'off') ? '♪̸' : '♪', bx, by + 6);
+  if (HAS_KB) {                                // keycap cue: m mutes
+    ctx.globalAlpha = music.muted ? 0.85 : 0.45;
+    ctx.fillStyle = 'rgba(30,26,42,0.45)';
+    roundRect(bx - 9, by + 24, 18, 17, 4); ctx.fill();
+    ctx.fillStyle = PAL.paper; ctx.font = '11px Georgia';
+    ctx.fillText('m', bx, by + 36);
+  }
   ctx.restore();
   ctx.textAlign = 'left';
 }
@@ -1166,18 +1184,32 @@ canvas.addEventListener('pointerdown', e => {
   // music button hit-test
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left, y = e.clientY - r.top;
-  if (state !== 'title' && Math.hypot(x - (W - 34), y - 30) < 22) { music.cycle(); return; }
+  if (state !== 'title' && Math.hypot(x - (W - 34), y - 30) < 22) {
+    if (music.muted) music.setMuted(false); else music.cycle();
+    return;
+  }
   press();
 });
 canvas.addEventListener('pointerup', () => release());
 canvas.addEventListener('pointercancel', () => release());
-window.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); press(); } });
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.code === 'Space') { e.preventDefault(); press(); return; }
+  if (e.code === 'KeyM') {                     // mute is never more than one key away
+    const el = document.activeElement;
+    if (el && el.tagName === 'INPUT') return;  // typing initials, not muting
+    music.setMuted(!music.muted);
+  }
+});
 window.addEventListener('keyup', e => { if (e.code === 'Space') release(); });
 
-document.addEventListener('visibilitychange', () => {
-  paused = document.hidden;
-  music.away(document.hidden);                 // Stella hums while she's away
-});
+function refreshAway() {
+  paused = document.hidden;                    // sim pauses only when unseen
+  music.away(document.hidden || !document.hasFocus());  // Stella hums while she's away —
+}                                              // including app-switches that never hide the tab
+document.addEventListener('visibilitychange', refreshAway);
+window.addEventListener('blur', refreshAway);
+window.addEventListener('focus', refreshAway);
 
 // ---------------------------------------------------------------- loop
 let lastT = performance.now();
