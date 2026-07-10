@@ -406,13 +406,13 @@ function maybeMessenger() {
   usedLines.add(line.i);
   messenger = { line, wx: camX + W + 60, y: clamp(bat.y + rand(-90, 60), H*0.15, H*0.7),
     t: 0, boomAt: line.boom ? 5.0 : Infinity, boomed: false, dead: false,
-    speed: line.mumble ? 15 : 26, bob: rand(0, 6.28), trail: [], trailT: 0 };
+    speed: line.mumble ? 7.5 : 13, bob: rand(0, 6.28), trail: [], trailT: 0 };
 }
 function updateMessenger(dt) {
   if (!messenger) return;
   const m = messenger;
   m.t += dt;
-  m.wx -= (worldSpeed * 0.12 + m.speed + Math.sin(m.t * 0.9 + m.bob) * 9) * dt;  // lazy, firefly-paced
+  m.wx -= (worldSpeed * 0.06 + m.speed + Math.sin(m.t * 0.9 + m.bob) * 9) * dt;  // lazy, firefly-paced
   m.y += Math.sin(m.t * 1.2 + m.bob) * 18 * dt;
   m.trailT += dt;
   if (!m.boomed && m.trailT > 0.055) {
@@ -427,7 +427,7 @@ function updateMessenger(dt) {
     m.vy = 40;                                     // comic drop
   }
   if (m.boomed) { m.vy += 260 * dt; m.y += m.vy * dt; }
-  if (m.wx < camX - 120 || m.y > H + 40 || m.t > 22) messenger = null;
+  if (m.wx < camX - 120 || m.y > H + 40 || m.t > 32) messenger = null;
 }
 
 // ---------------------------------------------------------------- pluck
@@ -643,44 +643,6 @@ function drawSky() {
     ctx.restore();
   }
 }
-function drawMountainRidge(par, base, hMul, alpha) {
-  const duskT = clamp(actBlend / 2, 0, 1);
-  const body = hexLerp('#9E86B4', '#262640', duskT);
-  const snow = hexLerp('#FFF3D6', '#C2CBE9', duskT);
-  const step = 250;
-  const start = Math.floor((camX * par) / step) - 1;
-  const n = Math.ceil(W / step) + 3;
-  const peaks = [];
-  for (let i = start; i < start + n; i++) {
-    const h = Math.abs(Math.sin(i * 91.17) * 4321.7) % 1;
-    peaks.push({ x: i * step - camX * par, y: base - (0.16 + h * 0.22) * H * hMul });
-  }
-  ctx.save(); ctx.globalAlpha = alpha;
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.moveTo(peaks[0].x - step, base + 40);
-  for (const p of peaks) {
-    ctx.lineTo(p.x - step * 0.5, base - 6);
-    ctx.lineTo(p.x, p.y);
-  }
-  ctx.lineTo(peaks[peaks.length - 1].x + step * 0.5, base - 6);
-  ctx.lineTo(peaks[peaks.length - 1].x + step, base + 40);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = snow;                                    // snowy tops
-  for (const p of peaks) {
-    const f = 0.26, vy = base - 6;
-    const lx = lerp(p.x, p.x - step * 0.5, f), ly = lerp(p.y, vy, f);
-    const rx = lerp(p.x, p.x + step * 0.5, f), ry = lerp(p.y, vy, f);
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    ctx.lineTo(lx, ly);
-    ctx.lineTo(lerp(lx, rx, 0.35), ly + 6);
-    ctx.lineTo(lerp(lx, rx, 0.62), ry + 3);
-    ctx.lineTo(rx, ry);
-    ctx.closePath(); ctx.fill();
-  }
-  ctx.restore();
-}
 function drawMountains() {
   if (IMGS.mountains) {
     const w = W * 1.5, h = w * (IMGS.mountains.height / IMGS.mountains.width);
@@ -688,8 +650,52 @@ function drawMountains() {
     for (let i = -1; i <= 1; i++) ctx.drawImage(IMGS.mountains, -off + i * w, H * 0.74 - h, w, h);
     return;
   }
-  drawMountainRidge(0.10, H * 0.70, 0.9, 0.5);             // far ridge, hazier
-  drawMountainRidge(0.16, H * 0.745, 1.0, 0.8);            // near ridge
+  // sparse and monumental: one, sometimes two on screen, hazy, dissolving into the treeline
+  const par = 0.08, base = H * 0.78;
+  const duskT = clamp(actBlend / 2, 0, 1);
+  const bodyRGB = hexLerp('#A490BE', '#232340', duskT);
+  const snowRGB = hexLerp('#FFF6E0', '#C6CFEC', duskT);
+  const spacing = 1000;
+  const start = Math.floor((camX * par - 700) / spacing);
+  const n = Math.ceil(W / spacing) + 2;
+  for (let i = start; i < start + n; i++) {
+    const h = Math.abs(Math.sin(i * 127.323) * 7919.77) % 1;
+    if (h < 0.4) continue;                       // some slots stay empty
+    const x = i * spacing - camX * par + (h - 0.5) * 700;
+    const peakH = (0.34 + h * 0.18) * H;
+    const halfW = peakH * (1.15 + h * 0.5);
+    const py = base - peakH;
+    const g = ctx.createLinearGradient(0, py, 0, base);
+    g.addColorStop(0, bodyRGB.replace('rgb', 'rgba').replace(')', ',0.5)'));
+    g.addColorStop(1, bodyRGB.replace('rgb', 'rgba').replace(')', ',0.06)'));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x - halfW, base);
+    ctx.lineTo(x, py);
+    ctx.lineTo(x + halfW, base);
+    ctx.closePath(); ctx.fill();
+    if (h > 0.72) {                              // occasional shoulder peak
+      const sx = x + halfW * 0.42, sy = base - peakH * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(sx - peakH * 0.5, base);
+      ctx.lineTo(sx, sy);
+      ctx.lineTo(sx + peakH * 0.6, base);
+      ctx.closePath(); ctx.fill();
+    }
+    const f = 0.24;                              // soft snowcap
+    const lx = lerp(x, x - halfW, f), rx = lerp(x, x + halfW, f);
+    const ly = lerp(py, base, f);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = snowRGB;
+    ctx.beginPath();
+    ctx.moveTo(x, py);
+    ctx.lineTo(lx, ly);
+    ctx.lineTo(lerp(lx, rx, 0.36), ly + peakH * 0.045);
+    ctx.lineTo(lerp(lx, rx, 0.6), ly + peakH * 0.02);
+    ctx.lineTo(rx, ly);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 }
 function treeTint(dark) {
   const duskT = clamp(actBlend / 2, 0, 1);
@@ -855,13 +861,15 @@ function drawMessenger() {
   drawFirefly(x, y, glow, 4);
   if (!m.boomed && m.t > 0.6) {
     const line = m.line;
-    ctx.font = line.mumble ? 'italic 12px Georgia' : '15px Georgia';
+    ctx.font = line.mumble ? 'italic 13.5px Georgia' : '17px Georgia';
     const tw = ctx.measureText(line.t).width;
-    const bw = tw + 26, bh = line.mumble ? 26 : 30;
-    const bx = clamp(x - bw / 2, 8, W - bw - 8), by = y - 52;
-    ctx.globalAlpha = line.mumble ? 0.82 : 0.94;
+    const bw = tw + 32, bh = line.mumble ? 30 : 36;
+    const bx = clamp(x - bw / 2, 8, W - bw - 8), by = y - 56;
+    ctx.globalAlpha = line.mumble ? 0.9 : 0.97;
     ctx.fillStyle = PAL.paper;
-    roundRect(bx, by, bw, bh, 12); ctx.fill();
+    roundRect(bx, by, bw, bh, 13); ctx.fill();
+    ctx.strokeStyle = 'rgba(58,43,62,0.28)'; ctx.lineWidth = 1;
+    roundRect(bx, by, bw, bh, 13); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x - 5, by + bh); ctx.lineTo(x + 6, by + bh); ctx.lineTo(x + 1, by + bh + 7); ctx.fill();
     ctx.fillStyle = PAL.plum; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(line.t, bx + bw / 2, by + bh / 2 + 1);
@@ -1134,7 +1142,7 @@ window.SMQ = {
     const L = FIREFLY_LINES[i] || FIREFLY_LINES[0];
     messenger = { line:L, wx: camX + W + 60, y: H * 0.4, t: 0,
       boomAt: L.boom ? 5 : Infinity, boomed: false, dead: false,
-      speed: L.mumble ? 15 : 26, bob: 0, trail: [], trailT: 0 }; },
+      speed: L.mumble ? 7.5 : 13, bob: 0, trail: [], trailT: 0 }; },
   music
 };
 </script>
