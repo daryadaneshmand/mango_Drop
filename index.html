@@ -305,6 +305,22 @@ const music = {
     this.tone(311, now, 0.35, 0.2, 'sawtooth');
     this.tone(329.6, now, 0.35, 0.2, 'sawtooth');
   },
+  whoosh() {                                    // velvet sweep under the curtain close
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const len = this.ctx.sampleRate * 2.2;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) { last = (last + (Math.random()*2-1)*0.04) * 0.996; d[i] = last * 2.4; }
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+    const g = this.ctx.createGain(); g.gain.value = 0;
+    src.connect(lp); lp.connect(g); g.connect(this.sfx);
+    g.gain.linearRampToValueAtTime(0.22, now + 0.9);
+    g.gain.linearRampToValueAtTime(0, now + 2.2);
+    src.start(now);
+  },
   boomPop() {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
@@ -456,8 +472,10 @@ function pluck(m) {
 const curtainUI = document.getElementById('curtainUI');
 function beginCurtain() {
   state = 'curtain';
-  curtain = { t: 0, signed: false, savedIni: null };
+  curtain = { t: 0, signed: false, savedIni: null, p: 0, prevP: 0, vel: 0, sh: { x: 0, v: 0 } };
   bat.holding = false;
+  v1link.style.display = '';
+  music.whoosh();
 }
 function scores() {
   try { return JSON.parse(localStorage.getItem('smq_scores') || '[]'); }
@@ -536,7 +554,15 @@ function update(dt) {
     const perchY = H * 0.42;
     bat.y = lerp(bat.y, perchY + Math.sin(tGlobal * 1.4) * 5, Math.min(1, dt * 2.2));
     bat.frame = 0;
-    if (curtain.t > 1.6 && curtainUI.style.display !== 'block') curtainUI.style.display = 'block';
+    // curtain sweep: eased progress + a shear spring so the hem trails the rail, then settles
+    const pr = clamp((curtain.t - 0.4) / 2.0, 0, 1);
+    const p = pr < 0.5 ? 4 * pr * pr * pr : 1 - Math.pow(-2 * pr + 2, 3) / 2;
+    curtain.vel = dt > 0 ? (p - curtain.prevP) / dt : 0;
+    curtain.prevP = p; curtain.p = p;
+    const sh = curtain.sh, desired = clamp(curtain.vel * 150, 0, 95);
+    sh.v += ((desired - sh.x) * 42 - sh.v * 6.5) * dt;
+    sh.x += sh.v * dt;
+    if (curtain.t > 3.4 && curtainUI.style.display !== 'block') curtainUI.style.display = 'block';
   } else worldSpeed = lerp(worldSpeed, 175, dt * 2);
 
   // pluck tween on eaten mangoes
@@ -904,48 +930,78 @@ function drawTitle() {
   ctx.restore();
   ctx.textAlign = 'left';
 }
-function drawCurtainPanel(fromLeft, w) {
+function curtainEdgePoints(fromLeft, w, shear) {
+  // the hem: trails the rail while moving (drape grows with depth), with a traveling wave
+  const base = fromLeft ? w : W - w;
+  const dir = fromLeft ? 1 : -1;
+  const c = curtain || { p: 1, vel: 0 };
+  const velEnv = Math.min(1, Math.abs(c.vel) * 1.4 + Math.abs(shear) / 60);
+  const amp = 4 + 30 * velEnv;
+  const pts = [], N = 26;
+  for (let k = 0; k <= N; k++) {
+    const yy = k / N * H;
+    const drape = Math.pow(k / N, 1.4) * shear;
+    const wave = amp * Math.sin(yy * 0.016 + tGlobal * 5.2) * (0.25 + 0.75 * k / N);
+    pts.push({ x: base - dir * (drape + wave), y: yy });
+  }
+  return pts;
+}
+function drawCurtainPanel(fromLeft, w, shear) {
   if (w <= 2) return;
-  const inner = fromLeft ? w : W - w;
   const x0 = fromLeft ? 0 : W;
-  const amp = 15 * (fromLeft ? 1 : -1);
-  const bumps = 6;
+  const pts = curtainEdgePoints(fromLeft, w, shear);
+  const path = new Path2D();
+  path.moveTo(x0, 0);
+  for (const p of pts) path.lineTo(p.x, p.y);
+  path.lineTo(x0, H);
+  path.closePath();
+  ctx.save();                                    // soft shadow hugging the hem
+  ctx.translate(fromLeft ? 16 : -16, 5);
+  ctx.fillStyle = 'rgba(12,6,8,0.22)';
+  ctx.fill(path);
+  ctx.restore();
+  // velvet: smooth sinusoidal folds that gather as the curtain settles
+  const c = curtain || { p: 1 };
+  const folds = lerp(2.6, 4.6, c.p) + 0.12 * Math.sin(tGlobal * 0.8);
   const g = ctx.createLinearGradient(fromLeft ? 0 : W - w, 0, fromLeft ? w : W, 0);
-  for (let k = 0; k <= 10; k++) g.addColorStop(k / 10, k % 2 ? '#6E1D1D' : '#8E2B22');
+  const NS = 30;
+  for (let k = 0; k <= NS; k++) {
+    const t = k / NS;
+    const b = Math.sin(t * folds * Math.PI * 2) * 0.5 + 0.5;
+    g.addColorStop(t, hexLerp('#5E1815', '#96382B', clamp(0.25 + 0.6 * b + 0.15 * t, 0, 1)));
+  }
   ctx.fillStyle = g;
+  ctx.fill(path);
+  ctx.save();                                    // rail gather + floor shadow, inside the cloth
+  ctx.clip(path);
+  const vg = ctx.createLinearGradient(0, 0, 0, H);
+  vg.addColorStop(0, 'rgba(20,6,6,0.34)');
+  vg.addColorStop(0.14, 'rgba(20,6,6,0)');
+  vg.addColorStop(0.9, 'rgba(20,6,6,0)');
+  vg.addColorStop(1, 'rgba(20,6,6,0.22)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(fromLeft ? 0 : W - w - 130, 0, w + 130, H);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(246,196,83,0.5)';      // quiet trim along the hem
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(x0, 0);
-  ctx.lineTo(inner + (fromLeft ? -14 : 14), 0);
-  for (let b = 0; b < bumps; b++) {
-    const y1 = (b + 0.5) * H / bumps, y2 = (b + 1) * H / bumps;
-    ctx.quadraticCurveTo(inner + amp, y1, inner - amp * 0.2, y2);
-  }
-  ctx.lineTo(x0, H);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(246,196,83,0.85)'; ctx.lineWidth = 3;   // gold fringe
-  ctx.beginPath();
-  ctx.moveTo(inner + (fromLeft ? -14 : 14), 0);
-  for (let b = 0; b < bumps; b++) {
-    const y1 = (b + 0.5) * H / bumps, y2 = (b + 1) * H / bumps;
-    ctx.quadraticCurveTo(inner + amp, y1, inner - amp * 0.2, y2);
-  }
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (const p of pts) ctx.lineTo(p.x, p.y);
   ctx.stroke();
 }
 function drawCurtain() {
-  if (!curtain || curtain.t < 0.9) return;
-  const a = clamp((curtain.t - 0.9) / 0.8, 0, 1);
+  if (!curtain || curtain.t < 0.4) return;
+  const a = clamp((curtain.t - 2.6) / 0.8, 0, 1);  // playbill enters after the cloth settles
   const cw = Math.min(340, W - 40), chh = 418;
   const cx = (W - cw) / 2, cy0 = H * 0.5 - chh / 2 - 16;
   const cy = lerp(cy0 + 40, cy0, easeOut(a));
   ctx.save();
-  ctx.globalAlpha = a * 0.35;
+  ctx.globalAlpha = 0.3 * clamp((curtain.t - 0.4) / 1.2, 0, 1);
   ctx.fillStyle = 'rgb(20,18,32)'; ctx.fillRect(0, 0, W, H);
   ctx.globalAlpha = 1;
-  // stage curtains sweep in from both wings — center third stays open for the playbill
-  const sweep = easeOut(clamp((curtain.t - 0.9) / 1.1, 0, 1));
-  const panelW = Math.max(W * 0.14, (W - Math.max(cw + 28, W * 0.34)) / 2) * sweep;
-  drawCurtainPanel(true, panelW);
-  drawCurtainPanel(false, panelW);
+  const panelW = Math.max(W * 0.14, (W - Math.max(cw + 28, W * 0.34)) / 2) * (curtain.p || 0);
+  drawCurtainPanel(true, panelW, curtain.sh.x);
+  drawCurtainPanel(false, panelW, curtain.sh.x);
   ctx.globalAlpha = a;
   ctx.fillStyle = PAL.paper;
   roundRect(cx, cy, cw, chh, 6); ctx.fill();
@@ -1073,6 +1129,7 @@ window.SMQ = {
   fill(n) { belly = Math.min(BELLY_MAX - 1, n !== undefined ? n : ACT_AT[2]); syncAct(); },
   curtainNow() { belly = BELLY_MAX; syncAct(); beginCurtain(); },
   dizzy() { dizzyT = 5; music.sour(); music.sting(); },
+  step(s) { const n = Math.ceil((s || 1) / 0.016); for (let i = 0; i < n; i++) update(0.016); render(); },
   line(i) { usedLines = new Set(); messenger = null;
     const L = FIREFLY_LINES[i] || FIREFLY_LINES[0];
     messenger = { line:L, wx: camX + W + 60, y: H * 0.4, t: 0,
