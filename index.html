@@ -716,11 +716,10 @@ function drawTreeLayer(par, baseY, scale, dark) {
     const h = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;    // deterministic per tree
     const x = i * seedStep - camX * par;
     const th = (0.09 + h * 0.08) * H * scale, cw = seedStep * (0.8 + h * 0.45);
-    ctx.beginPath();
-    ctx.ellipse(x, baseY - th, cw * 0.55, th * 0.62, 0, 0, 6.29);
-    ctx.ellipse(x - cw * 0.3, baseY - th * 0.62, cw * 0.36, th * 0.4, 0, 0, 6.29);
-    ctx.ellipse(x + cw * 0.32, baseY - th * 0.58, cw * 0.33, th * 0.38, 0, 0, 6.29);
-    ctx.fill();
+    // one path per blob — chained ellipse() subpaths join via chords that notch the fill
+    ctx.beginPath(); ctx.ellipse(x, baseY - th, cw * 0.55, th * 0.62, 0, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x - cw * 0.3, baseY - th * 0.62, cw * 0.36, th * 0.4, 0, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x + cw * 0.32, baseY - th * 0.58, cw * 0.33, th * 0.38, 0, 0, 6.29); ctx.fill();
     ctx.fillRect(x - 5 * scale, baseY - th * 0.5, 10 * scale, th * 0.5);
   }
 }
