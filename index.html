@@ -1,481 +1,980 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sahra's Mango Quest</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #1a1a2e;
-            overflow: hidden; /* Hide scrollbars */
-            font-family: Arial, sans-serif;
-        }
-        
-        #gameContainer {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        canvas {
-            border: none; /* Remove border for fullscreen */
-            background: #0f0f23;
-            image-rendering: pixelated;
-            width: 100vw;
-            height: 100vh;
-        }
-        
-        h1 {
-            position: absolute;
-            top: 20px;
-            color: #3b56a7;
-            font-family: 'Outfit';
-            font-size: 40px;
-            z-index: 10;
-        }
-        
-        p {
-            position: absolute;
-            bottom: 20px;
-            color: #cccccc;
-            z-index: 10;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Sahra's Mango Quest — Orchard Dusk</title>
+<style>
+  html, body { margin:0; padding:0; background:#141426; overflow:hidden; height:100%;
+    font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
+  canvas { display:block; touch-action:none; -webkit-user-select:none; user-select:none; }
+  #toast { position:fixed; top:52px; right:12px; color:#FBF3E4; background:rgba(30,26,42,.72);
+    padding:5px 12px; border-radius:14px; font-size:13px; font-style:italic; opacity:0;
+    transition:opacity .4s; pointer-events:none; z-index:5; }
+  #v1link { position:fixed; bottom:10px; left:12px; color:#FBF3E4; opacity:.45; font-size:12px;
+    font-style:italic; text-decoration:none; z-index:5; }
+  #v1link:hover { opacity:.9; }
+  #curtainUI { position:fixed; left:50%; transform:translateX(-50%); bottom:7%;
+    display:none; z-index:6; text-align:center; }
+  #curtainUI button, #curtainUI input {
+    font-family:Georgia, serif; font-size:16px; background:#FBF3E4; color:#3A2B3E;
+    border:1.5px solid #3A2B3E; border-radius:8px; padding:7px 14px; margin:0 4px; cursor:pointer; }
+  #curtainUI input { width:56px; text-align:center; text-transform:uppercase; }
+  #curtainUI button:active { background:#F6C453; }
+  #encoreRow { margin-top:10px; }
+  .uiLabel { color:#FBF3E4; font-size:13px; font-style:italic; margin-bottom:6px; opacity:.85; }
+</style>
 </head>
 <body>
-    <div id="gameContainer">
-        <h1>🥭 Sahra's Mango Quest 🦇</h1>
-        <canvas id="gameCanvas"></canvas>
-        <p>Use arrow keys to move the bat • Catch the sacred mangoes!</p>
-    </div>
+<canvas id="c"></canvas>
+<div id="toast"></div>
+<a id="v1link" href="v1.html">the original (2025) →</a>
+<div id="curtainUI">
+  <div class="uiLabel">sign the playbill</div>
+  <div id="initialsRow">
+    <button data-ini="S">S</button>
+    <button data-ini="D">D</button>
+    <input id="iniInput" maxlength="3" placeholder="ABC">
+    <button id="iniSave">sign</button>
+  </div>
+  <div id="encoreRow"><button id="encoreBtn">Encore ↻</button></div>
+</div>
 
-    <script>
-        // Tsoding-style approach: Direct pixel buffer manipulation!
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Get actual screen size for fullscreen
-        const DISPLAY_WIDTH = window.innerWidth;
-        const DISPLAY_HEIGHT = window.innerHeight;
-        
-        // Set canvas to screen size
-        canvas.width = DISPLAY_WIDTH;
-        canvas.height = DISPLAY_HEIGHT;
-        
-        // Our holy pixel buffer - same philosophy as Tsoding's static array
-        let display = new Uint32Array(DISPLAY_WIDTH * DISPLAY_HEIGHT);
-        
-        // Game state
-        let batX = DISPLAY_WIDTH / 2;
-        let batY = DISPLAY_HEIGHT - 350; // Adjusted for larger bat
-        let batSpeed = 12; // Increased speed for fullscreen
-        let batImage = null;
-        
-        // Three mango types
-        const MANGO_TYPES = [
-            { name: 'Honey', points: 10, rarity: 0.7, image: null, fallbackColor: 0xFFD700 },
-            { name: 'Moldy', points: -30, rarity: 0.2, image: null, fallbackColor: 0x654321 },
-            { name: 'Miyazaki', points: 100, rarity: 0.1, image: null, fallbackColor: 0xFF1493 }
-        ];
-        
-        function loadMangoImages() {
-            const imageFiles = ['honey.png', 'moldy.png', 'miyazaki.png'];
-            
-            MANGO_TYPES.forEach((mango, index) => {
-                const img = new Image();
-                
-                img.onload = () => {
-                    mango.image = img;
-                    console.log(`✅ Loaded ${mango.name} mango sprite!`);
-                };
-                
-                img.onerror = () => {
-                    console.log(`⚠️ Could not load ${imageFiles[index]}, using fallback color`);
-                };
-                
-                img.src = imageFiles[index];
-            });
+<script>
+'use strict';
+// ---------------------------------------------------------------- constants
+const PAL = {
+  crimson:'#B23A2A', orange:'#E8863A', gold:'#F6C453', leaf:'#58A83C',
+  deepLeaf:'#2E6B24', stem:'#5D3A24', plum:'#3A2B3E', paper:'#FBF3E4'
+};
+// act skies: [top, mid, bottom]
+const ACT_SKIES = [
+  ['#FFE9C2', '#FFD9A0', '#F5A97F'],   // I  — golden hour
+  ['#F5A97F', '#C98BA0', '#8E7BA8'],   // II — dusk
+  ['#2B2D42', '#232338', '#141426']    // III — night
+];
+const ACT_NAMES = ['Golden Hour', 'Dusk', 'Night'];
+const BELLY_MAX = 45;                   // honey +1, miyazaki +3
+const ACT_AT = [0, 15, 30];             // belly thresholds per act
+const MANGO_TYPES = [                   // v1 canon, rarity intact
+  { name:'Honey',    key:'mango_honey',    points:10,  rarity:0.7, belly:1 },
+  { name:'Moldy',    key:'mango_moldy',    points:-30, rarity:0.2, belly:0 },
+  { name:'Miyazaki', key:'mango_miyazaki', points:100, rarity:0.1, belly:3 }
+];
+const FIREFLY_LINES = [
+  { t:"i vant weiner schnitzel" },
+  { t:"this ass is on fiRE" },
+  { t:"it's dark in here!", act:3 },
+  { t:"insectum means bug!" },
+  { t:"looking for a star..." },
+  { t:"turn left at glowing toadstool, don't touch the ferns...", mumble:true },
+  { t:"I was once in a low budget film... where is it?" },
+  { t:"am i a terrorist? this ass is bomb", boom:true },
+  { t:"Vâ-veylâ! واویلا" }
+];
+const POUF_STING_START = 10;            // pouf_violin.m4a is a 40s cut; the swell lands 10s in
+const PENTA = [220, 277.18, 329.63, 369.99, 440, 554.37, 659.25, 739.99, 880];
 
-            const batImg = new Image();
-            batImg.onload = () => {
-                batImage = batImg;
-                console.log('✅ Loaded bat sprite!');
-            };
-            batImg.onerror = () => console.log('⚠️ Could not load bat.png, using fallback');
-            batImg.src = 'bat.png';
-        }
-        
-        let mangoes = [];
-        let score = 0;
-        let health = 100;
-        let maxHealth = 100;
-        let gameOver = false;
+// ---------------------------------------------------------------- canvas
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
 
-        // Celebration effects - FIXED Spring class with velocity property
-        class Spring {
-            constructor(target, stiffness = 0.3, damping = 0.8) {
-                this.value = target;
-                this.target = target;
-                this.velocity = 0; // FIXED: This was missing!
-                this.stiffness = stiffness;
-                this.damping = damping;
-            }
+// ---------------------------------------------------------------- helpers
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+function hexLerp(h1, h2, t) {
+  const p = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+  const a = p(h1), b = p(h2);
+  return `rgb(${a.map((v,i)=>Math.round(lerp(v,b[i],t))).join(',')})`;
+}
+const easeOut = t => 1 - Math.pow(1 - t, 3);
 
-            update() {
-                const force = (this.target - this.value) * this.stiffness;
-                this.velocity += force;
-                this.velocity *= this.damping;
-                this.value += this.velocity;
-            }
-        }
+// ---------------------------------------------------------------- assets
+const IMGS = {};
+['mango_miyazaki','mango_honey','mango_moldy','bat_open','bat_closed',
+ 'trees_far','trees_near','ground','title'].forEach(key => {
+  const img = new Image();
+  img.onload = () => { IMGS[key] = img; };
+  img.onerror = () => {};
+  img.src = 'assets/' + key + '.png';
+});
 
-        let particles = [];
-        let scorePopups = [];
-        
-        // Input handling
-        const keys = {};
-        window.addEventListener('keydown', (e) => keys[e.code] = true);
-        window.addEventListener('keyup', (e) => keys[e.code] = false);
-        
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            location.reload(); // Reload game when window is resized
-        });
-        
-        // Clear the entire display buffer
-        function clearScreen() {
-            // Soft gradient from pale yellow at top to muted royal blue at bottom
-            for (let y = 0; y < DISPLAY_HEIGHT; y++) {
-                const ratio = y / DISPLAY_HEIGHT;
-                // Interpolate: pale yellow (255,255,200) -> muted royal blue (70,100,150)
-                const r = Math.floor(255 * (1 - ratio) + 70 * ratio);
-                const g = Math.floor(255 * (1 - ratio) + 100 * ratio);
-                const b = Math.floor(200 * (1 - ratio) + 150 * ratio);
-                const color = (r << 16) | (g << 8) | b;
-                
-                // Fill entire row with this color
-                for (let x = 0; x < DISPLAY_WIDTH; x++) {
-                    display[y * DISPLAY_WIDTH + x] = color;
-                }
-            }
-        }
-        
-        // Draw a rectangle directly to pixel buffer
-        function drawRect(x, y, width, height, color) {
-            for (let dy = 0; dy < height; dy++) {
-                for (let dx = 0; dx < width; dx++) {
-                    const pixelX = Math.floor(x + dx);
-                    const pixelY = Math.floor(y + dy);
-                    
-                    if (pixelX >= 0 && pixelX < DISPLAY_WIDTH && 
-                        pixelY >= 0 && pixelY < DISPLAY_HEIGHT) {
-                        display[pixelY * DISPLAY_WIDTH + pixelX] = color;
-                    }
-                }
-            }
-        }
+// ---------------------------------------------------------------- game state
+let state = 'title';               // title | play | curtain
+let paused = false;
+let tGlobal = 0;
 
-        // Draw an image to pixel buffer (for your beautiful mangoes!)
-        function drawImage(img, x, y, width, height) {
-            // Create temporary canvas to get image pixel data
-            const tempCanvas = document.createElement('canvas');
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCanvas.width = width;
-            tempCanvas.height = height;
-            
-            // Draw scaled image to temp canvas
-            tempCtx.drawImage(img, 0, 0, width, height);
-            
-            // Get pixel data
-            const imageData = tempCtx.getImageData(0, 0, width, height);
-            
-            // Copy to our pixel buffer
-            for (let dy = 0; dy < height; dy++) {
-                for (let dx = 0; dx < width; dx++) {
-                    const pixelX = Math.floor(x + dx);
-                    const pixelY = Math.floor(y + dy);
-                    
-                    if (pixelX >= 0 && pixelX < DISPLAY_WIDTH && 
-                        pixelY >= 0 && pixelY < DISPLAY_HEIGHT) {
-                        
-                        const srcIndex = (dy * width + dx) * 4;
-                        const alpha = imageData.data[srcIndex + 3];
-                        
-                        // Only draw non-transparent pixels
-                        if (alpha > 128) {
-                            const r = imageData.data[srcIndex];
-                            const g = imageData.data[srcIndex + 1];
-                            const b = imageData.data[srcIndex + 2];
-                            const color = (r << 16) | (g << 8) | b;
-                            
-                            display[pixelY * DISPLAY_WIDTH + pixelX] = color;
-                        }
-                    }
-                }
-            }
-        }
+const bat = { x:0, y:0, vy:0, holding:false, frame:0, flapT:0, r:30 };
+let camX = 0, worldSpeed = 175;
+let mangoes = [], particles = [], popups = [], wanderers = [];
+let spawnX = 0;
+let belly = 0, holyCount = 0, pluckTotal = 0;
+let combo = 0, comboT = 0, bestCombo = 0;
+let act = 0, actBlend = 0;         // actBlend eases toward act
+let actCard = null;                // {name, t}
+let dizzyT = 0;
+let messenger = null;              // the line-carrying firefly
+let usedLines = new Set();
+let curtain = null;                // {t, perchY, signed}
+let stars = [];
+for (let i = 0; i < 70; i++) stars.push({ x:Math.random(), y:Math.random()*0.55, r:rand(0.6,1.7), tw:rand(0,6) });
 
-        // Choose random mango type based on rarity
-        function getRandomMangoType() {
-            const rand = Math.random();
-            let cumulative = 0;
-            
-            for (const mango of MANGO_TYPES) {
-                cumulative += mango.rarity;
-                if (rand < cumulative) {
-                    return mango;
-                }
-            }
-            return MANGO_TYPES[0]; // Fallback to honey
-        }
+function resetRun() {
+  camX = 0; spawnX = 300;
+  bat.x = 0; bat.y = H * 0.45; bat.vy = 0; bat.holding = false;
+  mangoes = []; particles = []; popups = []; wanderers = [];
+  belly = 0; holyCount = 0; pluckTotal = 0;
+  combo = 0; comboT = 0; bestCombo = 0;
+  act = 0; actBlend = 0; actCard = null; dizzyT = 0;
+  messenger = null; usedLines = new Set(); curtain = null;
+  curtainUI.style.display = 'none';
+  music.setContext({ act:1 });
+}
 
-        // Effect functions
-        function createMiyazakiExplosion(centerX, centerY) {
-            for (let i = 0; i < 15; i++) {
-                const angle = (i / 15) * Math.PI * 2;
-                const speed = 8 + Math.random() * 4;
-                
-                particles.push({
-                    x: centerX, y: centerY,
-                    springX: new Spring(centerX),
-                    springY: new Spring(centerY),
-                    scale: new Spring(1.5, 0.2, 0.7),
-                    life: 60,
-                    color: 0xFFD700
-                });
-                
-                const p = particles[particles.length-1];
-                p.springX.velocity = Math.cos(angle) * speed;
-                p.springY.velocity = Math.sin(angle) * speed;
-            }
-        }
+// ---------------------------------------------------------------- audio
+const music = {
+  ctx:null, master:null, sfx:null, musicGain:null, bedBus:null,
+  tracks:{}, mode:'auto', hidden:false, actNow:1, loaded:false,
+  unlock() {
+    if (this.ctx) { this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain(); this.master.gain.value = 0.9;
+    this.master.connect(this.ctx.destination);
+    this.sfx = this.ctx.createGain(); this.sfx.gain.value = 0.8; this.sfx.connect(this.master);
+    this.musicGain = this.ctx.createGain(); this.musicGain.gain.value = 1; this.musicGain.connect(this.master);
+    this.bedBus = this.ctx.createGain(); this.bedBus.gain.value = 1; this.bedBus.connect(this.musicGain);
+    this.startWind();
+    this.loadAll();
+  },
+  async loadAll() {
+    const defs = [
+      ['stella', 'assets/music/spiritfarer.m4a', 0.5, true],
+      ['melody', 'assets/music/melody_flute.m4a', 0.5, true],
+      ['pouf',   'assets/music/pouf_violin.m4a', 0.55, false]
+    ];
+    await Promise.all(defs.map(async ([name, url, base, loop]) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw 0;
+        const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        const gain = this.ctx.createGain(); gain.gain.value = 0; gain.connect(this.bedBus);
+        this.tracks[name] = { buf, gain, base, loop, src:null };
+        if (loop) this.startLoop(name);
+      } catch (e) { console.log('music missing: ' + name); }
+    }));
+    this.loaded = true;
+    this.apply();
+  },
+  startLoop(name) {
+    const t = this.tracks[name];
+    if (!t || !t.buf || t.src) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = t.buf; src.loop = true;
+    src.loopStart = 0.05; src.loopEnd = t.buf.duration - 0.1;
+    src.connect(t.gain); src.start();
+    t.src = src;
+  },
+  desiredBed() {
+    if (this.mode === 'off') return null;
+    if (this.mode !== 'auto') return { name:this.mode, vol:0.5 };
+    if (this.hidden) return { name:'stella', vol:0.35 };   // Stella is the away theme
+    return this.actNow >= 3 ? { name:'melody', vol:0.5 } : { name:'stella', vol:0.5 };
+  },
+  apply() {
+    if (!this.ctx || !this.loaded) return;
+    const want = this.desiredBed();
+    const now = this.ctx.currentTime;
+    for (const [name, t] of Object.entries(this.tracks)) {
+      if (!t.buf) continue;
+      const target = (want && want.name === name) ? want.vol * t.base * 2 : 0;
+      if (want && want.name === name && !t.src) this.startLoop(name); // pinned pouf
+      t.gain.gain.cancelScheduledValues(now);
+      t.gain.gain.setValueAtTime(t.gain.gain.value, now);
+      t.gain.gain.linearRampToValueAtTime(target, now + 1.6);
+    }
+  },
+  setContext({ act:a, hidden:h }) {
+    if (a !== undefined) this.actNow = a;
+    if (h !== undefined) this.hidden = h;
+    this.apply();
+  },
+  cycle() {
+    const modes = ['auto','stella','melody','pouf','off'];
+    const labels = { auto:'auto (contextual)', stella:"Stella's Departure",
+                     melody:"Melody's flute", pouf:"Pouf's violin", off:'off' };
+    this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
+    this.apply();
+    toast('music: ' + labels[this.mode]);
+  },
+  sting() {                                   // Pouf interrupts the cozy
+    const t = this.tracks.pouf;
+    if (!this.ctx || !t || !t.buf || this.mode === 'off' || this.mode === 'pouf') return;
+    const now = this.ctx.currentTime;
+    const start = POUF_STING_START !== null ? POUF_STING_START : t.buf.duration * 0.55;
+    const g = this.ctx.createGain(); g.gain.value = 0; g.connect(this.musicGain);
+    const src = this.ctx.createBufferSource(); src.buffer = t.buf; src.connect(g);
+    src.start(now, Math.min(start, Math.max(0, t.buf.duration - 10)));
+    g.gain.linearRampToValueAtTime(0.6, now + 0.25);
+    g.gain.setValueAtTime(0.6, now + 7.2);
+    g.gain.linearRampToValueAtTime(0, now + 8.8);
+    src.stop(now + 9);
+    this.bedBus.gain.cancelScheduledValues(now);
+    this.bedBus.gain.setValueAtTime(this.bedBus.gain.value, now);
+    this.bedBus.gain.linearRampToValueAtTime(0.15, now + 0.4);
+    this.bedBus.gain.setValueAtTime(0.15, now + 6.8);
+    this.bedBus.gain.linearRampToValueAtTime(1, now + 8.8);
+  },
+  away(hidden) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.sfx.gain.cancelScheduledValues(now);
+    this.sfx.gain.setValueAtTime(this.sfx.gain.value, now);
+    this.sfx.gain.linearRampToValueAtTime(hidden ? 0 : 0.8, now + 0.8);
+    this.setContext({ hidden });
+  },
+  // ---- procedural SFX
+  startWind() {
+    const len = this.ctx.sampleRate * 2;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) { last = (last + (Math.random()*2-1)*0.02) * 0.998; d[i] = last * 3; }
+    const src = this.ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    this.windFilter = this.ctx.createBiquadFilter();
+    this.windFilter.type = 'lowpass'; this.windFilter.frequency.value = 550;
+    this.windGain = this.ctx.createGain(); this.windGain.gain.value = 0.05;
+    src.connect(this.windFilter); this.windFilter.connect(this.windGain);
+    this.windGain.connect(this.sfx); src.start();
+    this.nextGust = this.ctx.currentTime + rand(5, 11);
+    this.nextCricket = 0;
+  },
+  tick(actNow) {                              // called from game loop
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now > this.nextGust) {
+      this.windGain.gain.linearRampToValueAtTime(0.11, now + 1.2);
+      this.windGain.gain.linearRampToValueAtTime(0.05, now + 3.2);
+      this.windFilter.frequency.linearRampToValueAtTime(900, now + 1.2);
+      this.windFilter.frequency.linearRampToValueAtTime(550, now + 3.2);
+      this.nextGust = now + rand(6, 13);
+    }
+    if (actNow >= 3 && now > this.nextCricket && !this.hidden) {
+      for (const dtk of [0, 0.09]) this.tone(4200, now + dtk, 0.035, 0.05, 'sine');
+      this.nextCricket = now + rand(1.2, 2.9);
+    }
+  },
+  tone(freq, when, dur, vol, type='triangle', dest) {
+    if (!this.ctx) return;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(vol, when + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g); g.connect(dest || this.sfx);
+    o.start(when); o.stop(when + dur + 0.05);
+  },
+  chime(step) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const f = PENTA[clamp(step, 0, PENTA.length - 1)];
+    this.tone(f, now, 0.42, 0.34);
+    this.tone(f * 2.003, now, 0.3, 0.07);
+  },
+  holy() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    [880, 1108.7, 1318.5].forEach((f, i) => this.tone(f, now + i * 0.09, 0.5, 0.28));
+    this.tone(2637, now + 0.28, 0.6, 0.1, 'sine');
+  },
+  sour() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.tone(311, now, 0.35, 0.2, 'sawtooth');
+    this.tone(329.6, now, 0.35, 0.2, 'sawtooth');
+  },
+  boomPop() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const len = this.ctx.sampleRate * 0.18;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600;
+    const g = this.ctx.createGain(); g.gain.value = 0.5;
+    src.connect(bp); bp.connect(g); g.connect(this.sfx); src.start(now);
+    this.tone(1318.5, now + 0.05, 0.4, 0.2);
+  }
+};
 
-        function createScorePopup(x, y, points) {
-            scorePopups.push({
-                x: x, y: y, points: points,
-                scale: new Spring(2.0, 0.15, 0.6),
-                alpha: new Spring(1.0, 0.3, 0.9),
-                yOffset: new Spring(-30, 0.2, 0.8),
-                life: 60 // Increased from 120 to make it more visible
-            });
-        }
+// ---------------------------------------------------------------- toast
+const toastEl = document.getElementById('toast');
+let toastT = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.style.opacity = 1;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => toastEl.style.opacity = 0, 1600);
+}
 
-        // Convert our pixel buffer to canvas ImageData
-        function renderToCanvas() {
-            const imageData = ctx.createImageData(DISPLAY_WIDTH, DISPLAY_HEIGHT);
-            
-            for (let i = 0; i < display.length; i++) {
-                const color = display[i];
-                const pixelIndex = i * 4;
-                
-                // Extract RGB from our uint32 color
-                imageData.data[pixelIndex] = (color >> 16) & 0xFF;     // R
-                imageData.data[pixelIndex + 1] = (color >> 8) & 0xFF;  // G
-                imageData.data[pixelIndex + 2] = color & 0xFF;         // B
-                imageData.data[pixelIndex + 3] = 255;                  // A
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-        }
-        
-        // Update game state
-        function update() {
-            if (gameOver) {
-                // Restart on any key press
-                if (Object.values(keys).some(key => key)) {
-                    health = maxHealth;
-                    score = 0;
-                    mangoes = [];
-                    gameOver = false;
-                    particles = [];
-                    scorePopups = [];
-                }
-                return;
-            }
+// ---------------------------------------------------------------- spawning
+function pickType() {
+  const r = Math.random(); let c = 0;
+  for (const t of MANGO_TYPES) { c += t.rarity; if (r < c) return t; }
+  return MANGO_TYPES[0];
+}
+function spawnCluster(x) {
+  const n = 2 + Math.floor(Math.random() * 4);
+  const baseY = rand(H * 0.16, H * 0.62);
+  for (let i = 0; i < n; i++) {
+    mangoes.push({
+      wx: x + i * rand(36, 50), y: baseY + Math.sin(i * 1.7) * 26 + rand(-12, 12),
+      type: pickType(), phase: rand(0, 6.28), stem: rand(26, 42),
+      r: 26, plucked: 0, px: 0, py: 0
+    });
+  }
+}
+function ensureSpawns() {
+  while (spawnX < camX + W + 500) {
+    spawnCluster(spawnX);
+    spawnX += rand(240, 430);
+  }
+  mangoes = mangoes.filter(m => m.wx > camX - 250 && m.plucked < 1);
+}
 
-            // Bat movement with arrow keys - FIXED boundaries for larger bat
-            if (keys['ArrowLeft'] && batX > 0) {
-                batX -= batSpeed;
-            }
-            if (keys['ArrowRight'] && batX < DISPLAY_WIDTH - 480) {
-                batX += batSpeed;
-            }
-            if (keys['ArrowUp'] && batY > 0) {
-                batY -= batSpeed;
-            }
-            if (keys['ArrowDown'] && batY < DISPLAY_HEIGHT - 320) {
-                batY += batSpeed;
-            }
+// ---------------------------------------------------------------- particles
+function juice(x, y, type) {
+  const cols = type.name === 'Moldy' ? ['#8a7a3a', '#6b5b2a', '#a39150']
+    : type.name === 'Miyazaki' ? [PAL.crimson, PAL.gold, PAL.orange, '#fff1c9']
+    : [PAL.gold, '#f9d976', PAL.orange];
+  const n = type.name === 'Miyazaki' ? 22 : 11;
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, 6.28), sp = rand(60, type.name === 'Miyazaki' ? 260 : 170);
+    particles.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 60,
+      g: 320, life: rand(0.5, 0.9), t: 0, size: rand(2.5, 5.5),
+      color: cols[Math.floor(Math.random()*cols.length)] });
+  }
+}
+function sparkBurst(x, y) {                    // firefly boom
+  for (let i = 0; i < 38; i++) {
+    const a = rand(0, 6.28), sp = rand(90, 320);
+    particles.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      g: 140, life: rand(0.5, 1.1), t: 0, size: rand(1.8, 4),
+      color: ['#F6C453','#FFE9A0','#FFD24A','#fff'][Math.floor(Math.random()*4)] });
+  }
+}
+function popup(x, y, text, color, size) {
+  popups.push({ x, y, text, color: color || PAL.gold, size: size || 20, t: 0, life: 1.3 });
+}
 
-            // Update celebration effects
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                p.springX.update();
-                p.springY.update();
-                p.scale.update();
-                p.x = p.springX.value;
-                p.y = p.springY.value;
-                p.life--;
-                
-                if (p.life <= 0) particles.splice(i, 1);
-            }
-            
-            for (let i = scorePopups.length - 1; i >= 0; i--) {
-                const popup = scorePopups[i];
-                popup.scale.update();
-                popup.alpha.update();
-                popup.yOffset.update();
-                popup.life--;
-                
-                if (popup.life < 60) popup.alpha.target = 0; // Start fading earlier
-                if (popup.life <= 0) scorePopups.splice(i, 1);
-            }
+// ---------------------------------------------------------------- messenger firefly
+function maybeMessenger() {
+  if (messenger) return;
+  const pool = FIREFLY_LINES.map((l, i) => ({ ...l, i }))
+    .filter(l => !usedLines.has(l.i) && (!l.act || act + 1 >= l.act));
+  if (!pool.length) { usedLines.clear(); return maybeMessenger(); }
+  const line = pool[Math.floor(Math.random() * pool.length)];
+  usedLines.add(line.i);
+  messenger = { line, wx: camX + W + 60, y: clamp(bat.y + rand(-90, 60), H*0.15, H*0.7),
+    t: 0, boomAt: line.boom ? 4.0 : Infinity, boomed: false, dead: false,
+    speed: line.mumble ? 34 : 55, bob: rand(0, 6.28) };
+}
+function updateMessenger(dt) {
+  if (!messenger) return;
+  const m = messenger;
+  m.t += dt;
+  m.wx -= (worldSpeed * 0.25 + m.speed) * dt;     // drifts past slower than world
+  m.y += Math.sin(m.t * 1.8 + m.bob) * 14 * dt;
+  if (!m.boomed && m.t > m.boomAt) {
+    m.boomed = true;
+    sparkBurst(m.wx - camX, m.y);
+    music.boomPop();
+    m.vy = 40;                                     // comic drop
+  }
+  if (m.boomed) { m.vy += 260 * dt; m.y += m.vy * dt; }
+  if (m.wx < camX - 120 || m.y > H + 40 || m.t > 11) messenger = null;
+}
 
-            // Spawn mangoes occasionally with rarity system
-            if (Math.random() < 0.02) {
-                const mangoType = getRandomMangoType();
-                mangoes.push({
-                    x: Math.random() * (DISPLAY_WIDTH - 96),
-                    y: -96,
-                    type: mangoType,
-                    width: 96,
-                    height: 96,
-                    speed: 6 + Math.random() * 8 // Increased speed for fullscreen
-                });
-            }
-            
-            // Move mangoes down
-            for (let i = mangoes.length - 1; i >= 0; i--) {
-                const mango = mangoes[i];
-                mango.y += mango.speed;
-                
-                // Remove if off screen
-                if (mango.y > DISPLAY_HEIGHT) {
-                    mangoes.splice(i, 1);
-                    continue;
-                }
-                
-                // FIXED collision detection for larger bat (480x320)
-                if (batX < mango.x + mango.width &&
-                    batX + 480 > mango.x &&
-                    batY < mango.y + mango.height &&
-                    batY + 320 > mango.y) {
-                    
-                    score += mango.type.points;
-                    
-                    // Health effects
-                    if (mango.type.name === 'Moldy') {
-                        health -= 25;
-                        console.log('💀 Oh no! Moldy mango! 💀');
-                        if (health <= 0) gameOver = true;
-                    } else if (mango.type.name === 'Miyazaki') {
-                        health = Math.min(maxHealth, health + 15);
-                        console.log('🎉✨ HOLY MIYAZAKI MANGO ACQUIRED! ✨🎉');
+// ---------------------------------------------------------------- pluck
+function pluck(m) {
+  m.plucked = 0.001; m.px = m.wx; m.py = m.y;
+  pluckTotal++;
+  const type = m.type;
+  const sx = m.wx - camX;
+  if (type.name === 'Moldy') {
+    combo = 0;
+    dizzyT = 5;
+    music.sour();
+    music.sting();
+    popup(sx, m.y - 30, 'oough...', '#9aa06b', 16);
+    juice(sx, m.y, type);
+  } else {
+    combo++; comboT = 2.5;
+    bestCombo = Math.max(bestCombo, combo);
+    holyCount++;
+    belly = Math.min(BELLY_MAX, belly + type.belly);
+    music.chime(combo - 1);
+    juice(sx, m.y, type);
+    if (type.name === 'Miyazaki') {
+      music.holy();
+      popup(sx, m.y - 34, 'HOLY MIYAZAKI MANGO', PAL.gold, 19);
+      popup(sx, m.y - 10, '+100', '#fff1c9', 15);
+    }
+    if (combo >= 3) popup(bat.x - camX + 40, bat.y - 44, '×' + combo, '#fff1c9', 15);
+    if (pluckTotal % 10 === 0) maybeMessenger();
+  }
+  // act progression
+  const targetAct = belly >= ACT_AT[2] ? 2 : belly >= ACT_AT[1] ? 1 : 0;
+  if (targetAct !== act) {
+    act = targetAct;
+    actCard = { name: ACT_NAMES[act], num: act + 1, t: 0 };
+    music.setContext({ act: act + 1 });
+  }
+  if (belly >= BELLY_MAX && !curtain) beginCurtain();
+}
 
-                        createMiyazakiExplosion(mango.x + 24, mango.y + 24);
-                        createScorePopup(mango.x + 24, mango.y, 100);
-                    } else {
-                        health = Math.min(maxHealth, health + 5);
-                    }
-                    
-                    mangoes.splice(i, 1);
-                }
-            }
-        }
-        
-        // Render everything
-        function render() {
-            clearScreen();
+// ---------------------------------------------------------------- curtain
+const curtainUI = document.getElementById('curtainUI');
+function beginCurtain() {
+  state = 'curtain';
+  curtain = { t: 0, signed: false, savedIni: null };
+  bat.holding = false;
+}
+function scores() {
+  try { return JSON.parse(localStorage.getItem('smq_scores') || '[]'); }
+  catch (e) { return []; }
+}
+function saveScore(ini) {
+  if (!curtain || curtain.signed) return;
+  curtain.signed = true; curtain.savedIni = ini;
+  try {
+    const list = scores();
+    list.push({ ini, holy: holyCount, combo: bestCombo, d: new Date().toISOString().slice(0,10) });
+    list.sort((a, b) => b.holy - a.holy || b.combo - a.combo);
+    localStorage.setItem('smq_scores', JSON.stringify(list.slice(0, 5)));
+  } catch (e) {}
+  document.getElementById('initialsRow').style.display = 'none';
+}
+document.querySelectorAll('#initialsRow button[data-ini]').forEach(b =>
+  b.addEventListener('click', () => saveScore(b.dataset.ini)));
+document.getElementById('iniSave').addEventListener('click', () => {
+  const v = document.getElementById('iniInput').value.trim().toUpperCase() || '???';
+  saveScore(v);
+});
+document.getElementById('encoreBtn').addEventListener('click', () => {
+  document.getElementById('initialsRow').style.display = '';
+  resetRun();
+  state = 'play';
+});
 
-            if (gameOver) {
-                // Game over screen
-                drawRect(DISPLAY_WIDTH/2 - 200, DISPLAY_HEIGHT/2 - 50, 400, 100, 0x000000);
-                
-                renderToCanvas();
-                ctx.fillStyle = '#FF0000';
-                ctx.font = '40px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('GAME OVER', DISPLAY_WIDTH/2, DISPLAY_HEIGHT/2 - 10);
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = '20px Arial';
-                ctx.fillText(`Final Score: ${score}`, DISPLAY_WIDTH/2, DISPLAY_HEIGHT/2 + 20);
-                ctx.fillText('Press any key to restart', DISPLAY_WIDTH/2, DISPLAY_HEIGHT/2 + 50);
-                ctx.textAlign = 'left';
-                return;
-            }
-            
-            // Draw bat with correct size (480x320) - 4x larger
-            if (batImage && batImage.complete) {
-                drawImage(batImage, batX, batY, 480, 320);
-            } else {
-                drawRect(batX, batY, 480, 320, 0x8A2BE2);
-            }   
-            
-            // Draw mangoes (your beautiful sprites or fallback rectangles)
-            mangoes.forEach(mango => {
-                if (mango.type.image && mango.type.image.complete) {
-                    drawImage(mango.type.image, mango.x, mango.y, mango.width, mango.height);
-                } else {
-                    drawRect(mango.x, mango.y, mango.width, mango.height, mango.type.fallbackColor);
-                }
-            });
+// ---------------------------------------------------------------- update
+function update(dt) {
+  tGlobal += dt;
+  ensureSpawns();
 
-            // Draw particles
-            particles.forEach(p => {
-                const size = Math.max(1, p.scale.value * 3);
-                drawRect(p.x - size/2, p.y - size/2, size, size, p.color);
-            });
-            
-            // Render pixel buffer to canvas
-            renderToCanvas();
-            
-            // Score display
-            ctx.fillStyle = 'darkblue';
-            ctx.font = '30px Outfit';
-            ctx.fillText(`Holy Mangoes: ${score}`, 10, 35);
+  const dizzy = dizzyT > 0;
+  if (dizzy) dizzyT -= dt;
 
-            // Health bar
-            ctx.fillStyle = 'red';
-            ctx.fillRect(DISPLAY_WIDTH - 220, 20, 200, 20);
-            ctx.fillStyle = 'green';
-            ctx.fillRect(DISPLAY_WIDTH - 220, 20, (health / maxHealth) * 200, 20);
-            ctx.fillStyle = 'darkblue';
-            ctx.font = '16px Outfit';
-            ctx.fillText(`Health: ${Math.floor(health)}`, DISPLAY_WIDTH - 220, 55); 
+  if (state === 'play') {
+    // bat physics — hold to rise, release to glide
+    const lift = dizzy ? -640 : -1150;
+    const grav = 780;
+    bat.vy += (bat.holding ? lift : grav) * dt * (bat.holding ? 0.55 : 1);
+    if (dizzy) bat.vy += Math.sin(tGlobal * 2.2) * 260 * dt;   // drift
+    bat.vy = clamp(bat.vy, -320, 380);
+    bat.y += bat.vy * dt;
+    const ceil = H * 0.07, floor = H * 0.88 - 26;
+    if (bat.y < ceil) { bat.y = ceil; bat.vy = Math.max(bat.vy, 0); }
+    if (bat.y > floor) {
+      bat.y = floor; bat.vy = Math.min(bat.vy, 0);
+      if (Math.random() < 0.3) particles.push({ x: bat.x - camX - 20, y: H*0.885,
+        vx: -rand(30,80), vy: -rand(20,70), g: 300, life: 0.5, t: 0, size: 2.5, color: PAL.deepLeaf });
+    }
+    bat.x += worldSpeed * dt;
+    camX = bat.x - W * 0.35;
+    // flap animation
+    bat.flapT += dt;
+    if (bat.holding) { if (bat.flapT > 0.12) { bat.frame ^= 1; bat.flapT = 0; } }
+    else bat.frame = 0;
+    // combo timer
+    if (comboT > 0) { comboT -= dt; if (comboT <= 0) combo = 0; }
+    // collisions
+    const mx = bat.x + 34, my = bat.y;
+    for (const m of mangoes) {
+      if (m.plucked) continue;
+      const sway = Math.sin(tGlobal * 1.6 + m.phase) * 7;
+      const dx = m.wx + sway - mx, dy = m.y - my;
+      if (dx * dx + dy * dy < (bat.r + m.r) * (bat.r + m.r)) pluck(m);
+    }
+  }
 
-            // Score popups
-            scorePopups.forEach(popup => {
-                ctx.save();
-                ctx.globalAlpha = popup.alpha.value;
-                ctx.font = `${popup.scale.value * 20}px Arial`;
-                ctx.fillStyle = '#FFD700';
-                ctx.textAlign = 'center';
-                ctx.fillText(`+${popup.points}`, popup.x, popup.y + popup.yOffset.value);
-                ctx.restore();
-            });
-            ctx.textAlign = 'left';
-        }
-        
-        // Game loop
-        function gameLoop() {
-            update();
-            render();
-            requestAnimationFrame(gameLoop);
-        }
-        
-        // Initialize the game
-        loadMangoImages();
-        
-        // Start the game!
-        gameLoop();
-    </script>
+  if (state === 'curtain') {
+    curtain.t += dt;
+    // bat settles onto an implied perch, world eases to rest
+    worldSpeed = lerp(worldSpeed, 0, Math.min(1, dt * 1.6));
+    bat.x += worldSpeed * dt;
+    camX = bat.x - W * 0.35;
+    const perchY = H * 0.42;
+    bat.y = lerp(bat.y, perchY + Math.sin(tGlobal * 1.4) * 5, Math.min(1, dt * 2.2));
+    bat.frame = 0;
+    if (curtain.t > 1.6 && curtainUI.style.display !== 'block') curtainUI.style.display = 'block';
+  } else worldSpeed = lerp(worldSpeed, 175, dt * 2);
+
+  // pluck tween on eaten mangoes
+  for (const m of mangoes) if (m.plucked) {
+    m.plucked += dt * 6;
+    m.wx = lerp(m.px, bat.x + 30, easeOut(Math.min(1, m.plucked)));
+    m.y = lerp(m.py, bat.y, easeOut(Math.min(1, m.plucked)));
+  }
+
+  // act blend eases
+  actBlend = lerp(actBlend, act, Math.min(1, dt * 0.8));
+  if (actCard) { actCard.t += dt; if (actCard.t > 3.2) actCard = null; }
+
+  // particles / popups
+  for (const p of particles) { p.t += dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+  particles = particles.filter(p => p.t < p.life);
+  for (const p of popups) { p.t += dt; p.y -= 34 * dt; }
+  popups = popups.filter(p => p.t < p.life);
+
+  // ambient fireflies from late dusk on
+  const wantFlies = actBlend > 0.55 ? Math.round(lerp(0, 15, Math.min(1, (actBlend - 0.55) / 1.2))) : 0;
+  while (wanderers.length < wantFlies)
+    wanderers.push({ x: rand(0, W), y: rand(H*0.1, H*0.8), a: rand(0,6.28), tw: rand(0,6), sp: rand(9,26) });
+  for (const f of wanderers) {
+    f.a += rand(-1.4, 1.4) * dt;
+    f.x += Math.cos(f.a) * f.sp * dt - worldSpeed * 0.12 * dt;
+    f.y += Math.sin(f.a) * f.sp * dt;
+    if (f.x < -20) f.x = W + 10;
+    if (f.x > W + 20) f.x = -10;
+    f.y = clamp(f.y, H*0.05, H*0.85);
+  }
+
+  updateMessenger(dt);
+  music.tick(act + 1);
+}
+
+// ---------------------------------------------------------------- render
+function skyColors() {
+  const i = Math.floor(clamp(actBlend, 0, 2)), f = clamp(actBlend - i, 0, 1);
+  const a = ACT_SKIES[i], b = ACT_SKIES[Math.min(2, i + 1)];
+  return [0,1,2].map(k => hexLerp(a[k], b[k], f));
+}
+function drawSky() {
+  const [top, mid, bot] = skyColors();
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, top); g.addColorStop(0.55, mid); g.addColorStop(1, bot);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // sun (act I) — fades through dusk
+  const sunA = clamp(1 - actBlend * 1.1, 0, 1);
+  if (sunA > 0.01) {
+    ctx.save(); ctx.globalAlpha = sunA;
+    const sx = W * 0.72, sy = H * 0.52 + actBlend * H * 0.2;
+    const rg = ctx.createRadialGradient(sx, sy, 4, sx, sy, 120);
+    rg.addColorStop(0, 'rgba(255,236,190,0.95)'); rg.addColorStop(1, 'rgba(255,217,160,0)');
+    ctx.fillStyle = rg; ctx.fillRect(sx-120, sy-120, 240, 240);
+    ctx.fillStyle = '#FFF3D6'; ctx.beginPath(); ctx.arc(sx, sy, 34, 0, 6.29); ctx.fill();
+    ctx.restore();
+  }
+  // stars + moon (act III)
+  const nightA = clamp((actBlend - 1.15) / 0.85, 0, 1);
+  if (nightA > 0.01) {
+    ctx.save(); ctx.globalAlpha = nightA;
+    ctx.fillStyle = '#FFF6E3';
+    for (const s of stars) {
+      ctx.globalAlpha = nightA * (0.4 + 0.6 * Math.abs(Math.sin(tGlobal * 0.7 + s.tw)));
+      ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 6.29); ctx.fill();
+    }
+    ctx.globalAlpha = nightA;
+    const mx = W * 0.78, my = H * 0.18;
+    const rg = ctx.createRadialGradient(mx, my, 8, mx, my, 110);
+    rg.addColorStop(0, 'rgba(246,196,83,0.5)'); rg.addColorStop(1, 'rgba(246,196,83,0)');
+    ctx.fillStyle = rg; ctx.fillRect(mx-110, my-110, 220, 220);
+    ctx.fillStyle = '#F6D98B'; ctx.beginPath(); ctx.arc(mx, my, 30, 0, 6.29); ctx.fill();
+    ctx.fillStyle = 'rgba(200,160,90,0.35)';
+    ctx.beginPath(); ctx.arc(mx - 9, my - 5, 6, 0, 6.29); ctx.arc(mx + 8, my + 9, 4, 0, 6.29); ctx.fill();
+    ctx.restore();
+  }
+}
+function treeTint(dark) {
+  const duskT = clamp(actBlend / 2, 0, 1);
+  return hexLerp(dark ? '#5A4A66' : '#6E5A78', dark ? '#181628' : '#201d33', duskT);
+}
+function drawTreeLayer(par, baseY, scale, dark) {
+  const img = dark ? IMGS.trees_near : IMGS.trees_far;
+  const off = (camX * par) % (W * 1.4);
+  if (img) {
+    const w = W * 1.4, h = w * (img.height / img.width);
+    for (let i = -1; i <= 1; i++) ctx.drawImage(img, -off + i * w, baseY - h, w, h);
+    return;
+  }
+  ctx.fillStyle = treeTint(dark);
+  const seedStep = 200 * scale;
+  const start = Math.floor((camX * par - seedStep) / seedStep);
+  for (let i = start; i < start + Math.ceil(W / seedStep) + 3; i++) {
+    const h = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1;    // deterministic per tree
+    const x = i * seedStep - camX * par;
+    const th = (0.09 + h * 0.08) * H * scale, cw = seedStep * (0.8 + h * 0.45);
+    ctx.beginPath();
+    ctx.ellipse(x, baseY - th, cw * 0.55, th * 0.62, 0, 0, 6.29);
+    ctx.ellipse(x - cw * 0.3, baseY - th * 0.62, cw * 0.36, th * 0.4, 0, 0, 6.29);
+    ctx.ellipse(x + cw * 0.32, baseY - th * 0.58, cw * 0.33, th * 0.38, 0, 0, 6.29);
+    ctx.fill();
+    ctx.fillRect(x - 5 * scale, baseY - th * 0.5, 10 * scale, th * 0.5);
+  }
+}
+function drawGround() {
+  const y = H * 0.88;
+  if (IMGS.ground) {
+    const w = W * 1.2, h = H * 0.14;
+    const off = camX % w;
+    for (let i = -1; i <= 1; i++) ctx.drawImage(IMGS.ground, -off + i * w, y, w, h);
+    return;
+  }
+  ctx.fillStyle = hexLerp('#3E5A32', '#141d14', clamp(actBlend / 2, 0, 1));
+  ctx.fillRect(0, y, W, H - y);
+  ctx.strokeStyle = 'rgba(20,30,18,0.5)'; ctx.lineWidth = 2;
+  const step = 26, start = Math.floor(camX / step);
+  ctx.beginPath();
+  for (let i = start; i < start + W / step + 2; i++) {
+    const h = Math.abs(Math.sin(i * 7.31) * 917.27) % 1;
+    const x = i * step - camX;
+    ctx.moveTo(x, y + 2); ctx.quadraticCurveTo(x + 3, y - 8 - h * 9, x + 7, y + 1);
+  }
+  ctx.stroke();
+}
+function drawMangoImg(type, x, y, size) {
+  const img = IMGS[type.key];
+  if (img) {
+    const w = size, h = size * (img.height / img.width);
+    ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+  } else {
+    ctx.fillStyle = type.name === 'Moldy' ? '#8a7a3a' : type.name === 'Miyazaki' ? PAL.crimson : PAL.gold;
+    ctx.beginPath(); ctx.ellipse(x, y, size * 0.42, size * 0.34, -0.3, 0, 6.29); ctx.fill();
+  }
+}
+function drawMangoes() {
+  for (const m of mangoes) {
+    const sway = m.plucked ? 0 : Math.sin(tGlobal * 1.6 + m.phase) * 7;
+    const x = m.wx - camX + sway, y = m.y;
+    if (x < -80 || x > W + 80) continue;
+    if (!m.plucked) {
+      ctx.strokeStyle = PAL.stem; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x - sway * 0.5, y - m.stem); ctx.quadraticCurveTo(x, y - m.stem / 2, x, y - 16); ctx.stroke();
+      ctx.fillStyle = PAL.deepLeaf;
+      ctx.beginPath(); ctx.ellipse(x - sway * 0.5 - 6, y - m.stem + 2, 9, 4, -0.6, 0, 6.29); ctx.fill();
+    }
+    const size = m.type.name === 'Miyazaki' ? 62 : 52;
+    const shrink = m.plucked ? Math.max(0, 1 - m.plucked * 0.8) : 1;
+    if (shrink > 0.02) drawMangoImg(m.type, x, y, size * shrink);
+    if (m.type.name === 'Miyazaki' && !m.plucked) {          // faint halo on the sacred one
+      ctx.save(); ctx.globalAlpha = 0.25 + 0.15 * Math.sin(tGlobal * 2.4);
+      const rg = ctx.createRadialGradient(x, y, 6, x, y, 46);
+      rg.addColorStop(0, 'rgba(246,196,83,0.8)'); rg.addColorStop(1, 'rgba(246,196,83,0)');
+      ctx.fillStyle = rg; ctx.fillRect(x - 46, y - 46, 92, 92);
+      ctx.restore();
+    }
+  }
+}
+function drawBat() {
+  const x = bat.x - camX, y = bat.y;
+  const img = bat.frame ? (IMGS.bat_closed || IMGS.bat_open) : IMGS.bat_open;
+  const tilt = clamp(bat.vy / 900, -0.28, 0.34);
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(tilt);
+  if (img) {
+    const w = 120, h = w * (img.height / img.width);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  } else {
+    // placeholder bat, in-palette: plump body, bezier wings, gold eyes
+    const wingUp = bat.frame === 0 && bat.holding;
+    ctx.fillStyle = PAL.plum;
+    for (const s of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(s * 12, -4);
+      const wy = wingUp ? -34 : (bat.holding ? -10 : -18);
+      ctx.quadraticCurveTo(s * 44, wy, s * 62, wy + 8);
+      ctx.quadraticCurveTo(s * 48, wy + 20, s * 34, wy + 16);
+      ctx.quadraticCurveTo(s * 26, wy + 26, s * 14, wy + 22);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.beginPath(); ctx.ellipse(0, 0, 20, 26, 0, 0, 6.29); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -24, 13, 0, 6.29); ctx.fill();
+    ctx.beginPath();                                        // ears
+    ctx.moveTo(-11, -30); ctx.lineTo(-6, -44); ctx.lineTo(-1, -32);
+    ctx.moveTo(11, -30); ctx.lineTo(6, -44); ctx.lineTo(1, -32);
+    ctx.fill();
+    ctx.fillStyle = PAL.gold;                               // warm eyes
+    ctx.beginPath(); ctx.arc(-4.5, -25, 2.1, 0, 6.29); ctx.arc(4.5, -25, 2.1, 0, 6.29); ctx.fill();
+  }
+  if (dizzyT > 0) {                                         // dizzy stars orbit
+    ctx.fillStyle = PAL.gold;
+    for (let i = 0; i < 3; i++) {
+      const a = tGlobal * 4 + i * 2.09;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 26, -38 + Math.sin(a) * 7, 2.6, 0, 6.29); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+function drawFirefly(x, y, glow, r) {
+  ctx.save();
+  const rg = ctx.createRadialGradient(x, y, 1, x, y, r * 6);
+  rg.addColorStop(0, `rgba(255,230,140,${0.75 * glow})`); rg.addColorStop(1, 'rgba(255,230,140,0)');
+  ctx.fillStyle = rg; ctx.fillRect(x - r*6, y - r*6, r*12, r*12);
+  ctx.fillStyle = '#4a3a2a';
+  ctx.beginPath(); ctx.ellipse(x - r * 0.8, y, r, r * 0.7, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = `rgba(255,224,110,${0.55 + 0.45 * glow})`;
+  ctx.beginPath(); ctx.ellipse(x + r * 0.7, y, r * 0.9, r * 0.65, 0, 0, 6.29); ctx.fill();
+  ctx.restore();
+}
+function drawWanderers(front) {
+  for (let i = 0; i < wanderers.length; i++) {
+    if ((i % 2 === 0) !== front) continue;
+    const f = wanderers[i];
+    drawFirefly(f.x, f.y, 0.4 + 0.6 * Math.abs(Math.sin(tGlobal * 1.3 + f.tw)), 2.4);
+  }
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawMessenger() {
+  if (!messenger) return;
+  const m = messenger, x = m.wx - camX, y = m.y;
+  const glow = m.boomed ? 0 : 0.5 + 0.5 * Math.abs(Math.sin(m.t * 3));
+  ctx.save();
+  if (m.boomed) ctx.rotate && ctx.translate(0, 0);
+  drawFirefly(x, y, glow, 4);
+  if (!m.boomed && m.t > 0.6) {
+    const line = m.line;
+    ctx.font = line.mumble ? 'italic 12px Georgia' : '15px Georgia';
+    const tw = ctx.measureText(line.t).width;
+    const bw = tw + 26, bh = line.mumble ? 26 : 30;
+    const bx = clamp(x - bw / 2, 8, W - bw - 8), by = y - 52;
+    ctx.globalAlpha = line.mumble ? 0.82 : 0.94;
+    ctx.fillStyle = PAL.paper;
+    roundRect(bx, by, bw, bh, 12); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x - 5, by + bh); ctx.lineTo(x + 6, by + bh); ctx.lineTo(x + 1, by + bh + 7); ctx.fill();
+    ctx.fillStyle = PAL.plum; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(line.t, bx + bw / 2, by + bh / 2 + 1);
+  }
+  ctx.restore();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+function drawHUD() {
+  ctx.save();
+  const ink = actBlend > 1.3 ? PAL.paper : PAL.plum;
+  ctx.fillStyle = ink;
+  ctx.font = 'italic 17px Georgia';
+  ctx.fillText('Holy Mangoes', 16, 30);
+  ctx.font = '26px Georgia';
+  ctx.fillText(String(holyCount), 16, 58);
+  // belly meter
+  const bw = Math.min(170, W * 0.35);
+  ctx.globalAlpha = 0.35; ctx.fillStyle = ink;
+  roundRect(16, 70, bw, 9, 5); ctx.fill();
+  ctx.globalAlpha = 0.95;
+  const g = ctx.createLinearGradient(16, 0, 16 + bw, 0);
+  g.addColorStop(0, PAL.gold); g.addColorStop(1, PAL.crimson);
+  ctx.fillStyle = g;
+  roundRect(16, 70, Math.max(6, bw * belly / BELLY_MAX), 9, 5); ctx.fill();
+  // music button
+  const bx = W - 34, by = 30;
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = 'rgba(30,26,42,0.45)';
+  ctx.beginPath(); ctx.arc(bx, by, 17, 0, 6.29); ctx.fill();
+  ctx.fillStyle = PAL.paper; ctx.font = '16px Georgia'; ctx.textAlign = 'center';
+  ctx.fillText(music.mode === 'off' ? '♪̸' : '♪', bx, by + 6);
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+function drawActCard() {
+  if (!actCard) return;
+  const a = actCard.t < 0.6 ? actCard.t / 0.6 : actCard.t > 2.4 ? clamp((3.2 - actCard.t) / 0.8, 0, 1) : 1;
+  ctx.save();
+  ctx.globalAlpha = a;
+  const ink = actCard.num >= 3 ? PAL.paper : PAL.plum;
+  ctx.fillStyle = ink; ctx.textAlign = 'center';
+  ctx.font = '14px Georgia';
+  ctx.fillText('— ACT ' + 'I'.repeat(actCard.num).replace('III','III').replace('II','II') + ' —', W/2, H*0.24);
+  ctx.font = 'italic 30px Georgia';
+  ctx.fillText(actCard.name, W / 2, H * 0.24 + 38);
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+function drawTitle() {
+  ctx.save();
+  ctx.textAlign = 'center';
+  const cy = H * 0.34;
+  drawMangoImg(MANGO_TYPES[2], W / 2, cy - 86 + Math.sin(tGlobal * 1.2) * 6, 92);
+  ctx.fillStyle = PAL.plum;
+  ctx.font = (W < 440 ? '34px' : '44px') + ' Georgia';
+  ctx.fillText("Sahra's Mango Quest", W / 2, cy + 10);
+  ctx.font = 'italic 20px Georgia';
+  ctx.fillText('— Orchard Dusk —', W / 2, cy + 44);
+  ctx.font = '15px Georgia';
+  ctx.globalAlpha = 0.85;
+  ctx.fillText('hold to fly · release to glide', W / 2, cy + 92);
+  ctx.fillText('eat the sacred mangoes', W / 2, cy + 114);
+  ctx.globalAlpha = 0.65 + 0.35 * Math.sin(tGlobal * 2.6);
+  ctx.font = 'italic 18px Georgia';
+  ctx.fillText('tap to begin', W / 2, cy + 168);
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+function drawCurtain() {
+  if (!curtain || curtain.t < 0.9) return;
+  const a = clamp((curtain.t - 0.9) / 0.8, 0, 1);
+  const cw = Math.min(340, W - 40), chh = 350;
+  const cx = (W - cw) / 2, cy0 = H * 0.5 - chh / 2 - 20;
+  const cy = lerp(cy0 + 40, cy0, easeOut(a));
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = 'rgba(20,18,32,0.35)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = PAL.paper;
+  roundRect(cx, cy, cw, chh, 6); ctx.fill();
+  ctx.strokeStyle = PAL.plum; ctx.lineWidth = 1.5;
+  roundRect(cx + 8, cy + 8, cw - 16, chh - 16, 4); ctx.stroke();
+  ctx.fillStyle = PAL.plum; ctx.textAlign = 'center';
+  let y = cy + 40;
+  const line = (txt, font, dy, alpha) => {
+    ctx.font = font; ctx.globalAlpha = a * (alpha || 1);
+    ctx.fillText(txt, W / 2, y); y += dy;
+  };
+  line('P L A Y B I L L', '13px Georgia', 24, 0.75);
+  line("Sahra's Mango Quest", '25px Georgia', 26);
+  line('a one-bat show', 'italic 15px Georgia', 30, 0.85);
+  line('starring', '12px Georgia', 18, 0.6);
+  line('SAHRA as The Bat', '16px Georgia', 20);
+  line('the mangoes as themselves', 'italic 13px Georgia', 18, 0.8);
+  line('the fireflies: the ensemble', 'italic 13px Georgia', 18, 0.8);
+  line('directed by DARYA', '13px Georgia', 26, 0.9);
+  line(`Holy Mangoes: ${holyCount}    best combo ×${bestCombo}`, '15px Georgia', 26);
+  const list = scores();
+  if (list.length) {
+    line('· the record ·', 'italic 12px Georgia', 18, 0.6);
+    for (const s of list.slice(0, 3))
+      line(`${s.ini} — ${s.holy} holy (×${s.combo})`, '13px Georgia', 17, 0.85);
+  }
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
+function render() {
+  drawSky();
+  drawTreeLayer(0.35, H * 0.88, 1.25, false);
+  drawTreeLayer(0.65, H * 0.895, 1.0, true);
+  drawWanderers(false);
+  const wob = dizzyT > 0 ? Math.sin(tGlobal * 3.1) * 0.02 * Math.min(1, dizzyT) : 0;
+  ctx.save();
+  if (wob) { ctx.translate(W / 2, H / 2); ctx.rotate(wob); ctx.translate(-W / 2, -H / 2); }
+  drawMangoes();
+  if (state !== 'title') drawBat();
+  ctx.restore();
+  drawGround();
+  drawWanderers(true);
+  drawMessenger();
+  // particles + popups over everything in world
+  for (const p of particles) {
+    ctx.globalAlpha = clamp(1 - p.t / p.life, 0, 1);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.29); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const p of popups) {
+    ctx.globalAlpha = clamp(1.4 - p.t / p.life * 1.4, 0, 1);
+    ctx.fillStyle = p.color; ctx.font = p.size + 'px Georgia'; ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  if (dizzyT > 0) {                                          // queasy vignette
+    const rg = ctx.createRadialGradient(W/2, H/2, H * 0.3, W/2, H/2, H * 0.75);
+    rg.addColorStop(0, 'rgba(120,150,80,0)'); rg.addColorStop(1, `rgba(110,140,70,${0.22 * Math.min(1, dizzyT)})`);
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+  }
+  if (state === 'title') drawTitle();
+  else { drawHUD(); drawActCard(); drawCurtain(); }
+}
+
+// ---------------------------------------------------------------- input
+function press() {
+  if (state === 'title') {
+    music.unlock();
+    resetRun();
+    state = 'play';
+    v1link.style.display = 'none';
+    return;
+  }
+  if (state === 'play') bat.holding = true;
+}
+function release() { bat.holding = false; }
+const v1link = document.getElementById('v1link');
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  // music button hit-test
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  if (state !== 'title' && Math.hypot(x - (W - 34), y - 30) < 22) { music.cycle(); return; }
+  press();
+});
+canvas.addEventListener('pointerup', () => release());
+canvas.addEventListener('pointercancel', () => release());
+window.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); press(); } });
+window.addEventListener('keyup', e => { if (e.code === 'Space') release(); });
+
+document.addEventListener('visibilitychange', () => {
+  paused = document.hidden;
+  music.away(document.hidden);                 // Stella hums while she's away
+});
+
+// ---------------------------------------------------------------- loop
+let lastT = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  let dt = (now - lastT) / 1000; lastT = now;
+  if (paused) return;
+  dt = Math.min(dt, 0.05);
+  update(dt);
+  render();
+}
+requestAnimationFrame(loop);
+bat.y = H * 0.45;
+if (state === 'curtain' || state === 'title') v1link.style.display = '';
+
+// ---------------------------------------------------------------- debug handle
+function syncAct() {
+  const targetAct = belly >= ACT_AT[2] ? 2 : belly >= ACT_AT[1] ? 1 : 0;
+  if (targetAct !== act) {
+    act = targetAct;
+    actCard = { name: ACT_NAMES[act], num: act + 1, t: 0 };
+    music.setContext({ act: act + 1 });
+  }
+}
+window.SMQ = {
+  get state() { return { state, belly, act, holyCount, combo, camX }; },
+  fill(n) { belly = Math.min(BELLY_MAX - 1, n !== undefined ? n : ACT_AT[2]); syncAct(); },
+  curtainNow() { belly = BELLY_MAX; syncAct(); beginCurtain(); },
+  dizzy() { dizzyT = 5; music.sour(); music.sting(); },
+  line(i) { usedLines = new Set(); messenger = null;
+    const L = FIREFLY_LINES[i] || FIREFLY_LINES[0];
+    messenger = { line:L, wx: camX + W + 60, y: H * 0.4, t: 0,
+      boomAt: L.boom ? 4 : Infinity, boomed: false, dead: false,
+      speed: L.mumble ? 34 : 55, bob: 0 }; },
+  music
+};
+</script>
 </body>
 </html>
